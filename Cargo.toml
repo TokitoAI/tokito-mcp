@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/symbols",
+    "crates/server",
+    "crates/pack",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/VtronTokito/tokito-mcp"
+homepage = "https://github.com/VtronTokito/tokito-mcp"
+
+[workspace.dependencies]
+# Shared crate
+tokito-symbols = { path = "crates/symbols" }
+
+# SQLite (bundled — no system dep)
+rusqlite = { version = "0.32", features = ["bundled", "blob", "load_extension"] }
+
+# Serde + body encoding
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["use-std"] }
+
+# HTTP + MCP server
+axum = { version = "0.7", features = ["macros", "json"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Errors
+thiserror = "2"
+anyhow = "1"
+
+# Hashing + checksums
+blake3 = "1"
+
+# Caching
+moka = { version = "0.12", features = ["sync"] }
+
+# Packer-only
+clap = { version = "4", features = ["derive", "env"] }
+walkdir = "2"
+rayon = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
