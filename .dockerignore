@@ -1,0 +1,12 @@
+target/
+.git/
+.github/
+.idea/
+.vscode/
+*.md
+!README.md
+scripts/
+tests/
+**/tests/
+**/*.bak
+**/*.tmp

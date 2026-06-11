@@ -1,0 +1,236 @@
+name: release
+
+# Trigger:
+#   - Push a tag matching v*.*.* (e.g. v0.1.0) — full release.
+#   - Manual workflow_dispatch — useful for re-running without bumping the tag.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      kicad_symbols_ref:
+        description: 'gitlab.com/kicad/libraries/kicad-symbols git ref to build against'
+        required: false
+        default: '90c39c3880f0062a56b5944d428edc846968d72b'
+
+permissions:
+  contents: write   # create the GitHub Release
+  packages: write   # push to ghcr.io
+
+env:
+  CARGO_TERM_COLOR: always
+  # Default kicad-symbols pin — bump when CERN ships an update we want to track.
+  KICAD_SYMBOLS_REF: '90c39c3880f0062a56b5944d428edc846968d72b'
+
+jobs:
+  # ----------------------------------------------------------------- artifacts
+  build-artifacts:
+    name: Build symbols.sqlite + slim + manifest + log
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      symbols_blake3: ${{ steps.meta.outputs.symbols_blake3 }}
+    steps:
+      - name: Checkout tokito-mcp
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+          KICAD_REF="${{ github.event.inputs.kicad_symbols_ref || env.KICAD_SYMBOLS_REF }}"
+          echo "kicad_ref=${KICAD_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Clone kicad-symbols at pinned ref
+        run: |
+          KICAD_REF='${{ steps.meta.outputs.kicad_ref }}'
+          git clone --filter=blob:none https://gitlab.com/kicad/libraries/kicad-symbols.git
+          (cd kicad-symbols && git checkout "$KICAD_REF")
+          echo "Checked out kicad-symbols @ $(cd kicad-symbols && git rev-parse HEAD)"
+
+      - name: Build packer
+        run: cargo build --release -p tokito-mcp-pack
+
+      - name: Run packer
+        run: |
+          mkdir -p out
+          ./target/release/tokito-mcp-pack \
+            --src kicad-symbols \
+            --out out/symbols.sqlite \
+            --slim-out out/catalog.sqlite \
+            --source-commit '${{ steps.meta.outputs.kicad_ref }}'
+
+      - name: Record blake3 of full artifact
+        id: hash
+        run: |
+          BLAKE=$(jq -r '.artifacts[] | select(.name=="symbols.sqlite") | .blake3' out/manifest.json)
+          echo "symbols_blake3=$BLAKE" >> "$GITHUB_OUTPUT"
+          echo "symbols_blake3=$BLAKE" >> "$GITHUB_ENV"
+
+      - name: Show build.log
+        run: cat out/build.log
+
+      - name: Upload artifacts (intra-workflow)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokito-mcp-artifacts
+          path: |
+            out/symbols.sqlite
+            out/catalog.sqlite
+            out/manifest.json
+            out/build.log
+
+  # ----------------------------------------------------------------- server
+  build-server:
+    name: Build tokito-mcp-server (linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --release -p tokito-mcp-server
+
+      - name: Strip binary
+        run: strip target/release/tokito-mcp-server
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokito-mcp-server-linux-x86_64
+          path: target/release/tokito-mcp-server
+
+  # ----------------------------------------------------------------- docker
+  docker:
+    name: Build + push Docker image
+    needs: [build-artifacts]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tokito-mcp-artifacts
+          path: out
+
+      - name: Stage artifact for docker build context
+        run: cp out/symbols.sqlite ./symbols.sqlite
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: tags
+        run: |
+          REPO=ghcr.io/${{ github.repository_owner }}/tokito-mcp
+          REPO=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
+          VERSION='${{ needs.build-artifacts.outputs.version }}'
+          {
+            echo "tags<<EOF"
+            echo "${REPO}:${VERSION}"
+            echo "${REPO}:latest"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.build-artifacts.outputs.version }}
+
+  # ----------------------------------------------------------------- release
+  release:
+    name: Create GitHub Release
+    needs: [build-artifacts, build-server, docker]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download symbol artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tokito-mcp-artifacts
+          path: dist
+
+      - name: Download server binary
+        uses: actions/download-artifact@v4
+        with:
+          name: tokito-mcp-server-linux-x86_64
+          path: dist-server
+
+      - name: Stage release files
+        run: |
+          mkdir -p release
+          cp dist/symbols.sqlite     release/symbols.sqlite
+          cp dist/catalog.sqlite     release/catalog.sqlite
+          cp dist/manifest.json      release/manifest.json
+          cp dist/build.log          release/build.log
+          cp dist-server/tokito-mcp-server release/tokito-mcp-server-linux-x86_64
+          (cd release && sha256sum * > SHA256SUMS)
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          name: ${{ needs.build-artifacts.outputs.version }}
+          generate_release_notes: true
+          body: |
+            ## tokito-mcp ${{ needs.build-artifacts.outputs.version }}
+
+            ### Artifacts
+            - `symbols.sqlite` — full catalog with bodies (26 MB)
+            - `catalog.sqlite` — slim catalog, body NULLed (12 MB)
+            - `manifest.json` — versions, counts, blake3 checksums
+            - `build.log`     — top libs, dangling extends, sizes
+            - `tokito-mcp-server-linux-x86_64` — pre-built server binary
+
+            ### Docker
+            ```
+            docker pull ghcr.io/${{ github.repository_owner }}/tokito-mcp:${{ needs.build-artifacts.outputs.version }}
+            ```
+
+            ### symbols.sqlite blake3
+            `${{ needs.build-artifacts.outputs.symbols_blake3 }}`
