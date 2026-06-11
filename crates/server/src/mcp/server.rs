@@ -123,7 +123,7 @@ impl Tokito {
         let conn = self.state.conn.clone();
         let query = args.query.clone();
         let items = tokio::task::spawn_blocking(move || {
-            let c = conn.lock().unwrap();
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
             search::search(
                 &c,
                 search::SearchOpts {
@@ -159,7 +159,7 @@ impl Tokito {
         let conn = self.state.conn.clone();
         let resolver = self.state.resolver.clone();
         let resolved = tokio::task::spawn_blocking(move || {
-            let c = conn.lock().unwrap();
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
             resolver.resolve(&c, &args.lib, &args.name)
         })
         .await
@@ -190,7 +190,7 @@ impl Tokito {
         let limit = args.limit.unwrap_or(50).clamp(1, 200);
         let conn = self.state.conn.clone();
         let items = tokio::task::spawn_blocking(move || {
-            let c = conn.lock().unwrap();
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
             search::find_compatible(
                 &c,
                 search::CompatibleOpts {
@@ -221,7 +221,7 @@ impl Tokito {
     async fn list_libraries(&self) -> Result<CallToolResult, McpError> {
         let conn = self.state.conn.clone();
         let libs = tokio::task::spawn_blocking(move || {
-            let c = conn.lock().unwrap();
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
             search::list_libraries(&c)
         })
         .await
