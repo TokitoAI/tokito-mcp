@@ -119,6 +119,10 @@ impl Tokito {
                 None,
             ));
         }
+        check_len("query", &args.query, MAX_QUERY_LEN)?;
+        if let Some(lib) = args.lib.as_deref() {
+            check_len("lib", lib, MAX_LIB_NAME_LEN)?;
+        }
         let limit = args.limit.unwrap_or(20).clamp(1, 200);
         let conn = self.state.conn.clone();
         let query = args.query.clone();
@@ -156,6 +160,8 @@ impl Tokito {
         &self,
         Parameters(args): Parameters<GetSymbolArgs>,
     ) -> Result<CallToolResult, McpError> {
+        check_len("lib", &args.lib, MAX_LIB_NAME_LEN)?;
+        check_len("name", &args.name, MAX_SYMBOL_NAME_LEN)?;
         let conn = self.state.conn.clone();
         let resolver = self.state.resolver.clone();
         let resolved = tokio::task::spawn_blocking(move || {
@@ -186,6 +192,15 @@ impl Tokito {
                 "at least one of `pins`, `fp_pattern`, or `query` must be set".to_string(),
                 None,
             ));
+        }
+        if let Some(q) = args.query.as_deref() {
+            check_len("query", q, MAX_QUERY_LEN)?;
+        }
+        if let Some(p) = args.fp_pattern.as_deref() {
+            check_len("fp_pattern", p, MAX_FP_PATTERN_LEN)?;
+        }
+        if let Some(lib) = args.lib.as_deref() {
+            check_len("lib", lib, MAX_LIB_NAME_LEN)?;
         }
         let limit = args.limit.unwrap_or(50).clamp(1, 200);
         let conn = self.state.conn.clone();
@@ -244,6 +259,27 @@ impl ServerHandler for Tokito {
                  names + electrical types (`get_symbol`).",
             )
     }
+}
+
+// Length caps for user-supplied tool args. Mirrored on the REST face. The
+// numbers are deliberately tight: KiCad library names top out at ~30 chars,
+// symbol names at ~40, and a meaningful FTS5 query rarely needs more than
+// a few dozen characters. Anything larger is almost certainly an attempt to
+// exercise the FTS5 backend's worst-case parse time.
+const MAX_QUERY_LEN: usize = 256;
+const MAX_LIB_NAME_LEN: usize = 64;
+const MAX_SYMBOL_NAME_LEN: usize = 128;
+const MAX_FP_PATTERN_LEN: usize = 64;
+
+fn check_len(field: &str, value: &str, max: usize) -> Result<(), McpError> {
+    if value.len() > max {
+        return Err(McpError::new(
+            ErrorCode::INVALID_PARAMS,
+            format!("`{field}` exceeds {max} bytes"),
+            None,
+        ));
+    }
+    Ok(())
 }
 
 fn ok_json<T: Serialize>(v: &T) -> Result<CallToolResult, McpError> {

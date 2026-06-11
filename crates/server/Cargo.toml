@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile = "3"
-tower = { version = "0.5", features = ["util"] }
+tower = { version = "0.5", features = ["util", "limit"] }
 http-body-util = "0.1"
 bytes = "1"
 postcard.workspace = true
