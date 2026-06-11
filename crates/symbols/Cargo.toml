@@ -1,0 +1,23 @@
+[package]
+name = "tokito-symbols"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Shared library: KiCad symbol catalog (SQLite + FTS5), body decode, extends resolver"
+
+[dependencies]
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+postcard.workspace = true
+thiserror.workspace = true
+moka.workspace = true
+blake3.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+postcard.workspace = true
