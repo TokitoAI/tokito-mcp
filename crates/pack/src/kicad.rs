@@ -75,12 +75,39 @@ pub struct ParsedGraphic {
 
 #[derive(Debug, Clone)]
 pub enum ParsedGraphicKind {
-    Rectangle { sx: i32, sy: i32, ex: i32, ey: i32 },
-    Circle { cx: i32, cy: i32, radius: i32 },
-    Arc { sx: i32, sy: i32, mx: i32, my: i32, ex: i32, ey: i32 },
-    Polyline { points: Vec<(i32, i32)> },
-    Bezier { points: Vec<(i32, i32)> },
-    Text { x: i32, y: i32, rotation: i16, content: String, italic: bool, bold: bool },
+    Rectangle {
+        sx: i32,
+        sy: i32,
+        ex: i32,
+        ey: i32,
+    },
+    Circle {
+        cx: i32,
+        cy: i32,
+        radius: i32,
+    },
+    Arc {
+        sx: i32,
+        sy: i32,
+        mx: i32,
+        my: i32,
+        ex: i32,
+        ey: i32,
+    },
+    Polyline {
+        points: Vec<(i32, i32)>,
+    },
+    Bezier {
+        points: Vec<(i32, i32)>,
+    },
+    Text {
+        x: i32,
+        y: i32,
+        rotation: i16,
+        content: String,
+        italic: bool,
+        bold: bool,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -89,6 +116,8 @@ pub enum ExtractError {
     NotLibFile,
     #[error("symbol block missing name")]
     UnnamedSymbol,
+    /// Reserved for future structured value validation (e.g. malformed numbers).
+    #[allow(dead_code)]
     #[error("malformed value for {key}: {detail}")]
     BadValue { key: &'static str, detail: String },
 }
@@ -115,14 +144,19 @@ fn extract_symbol(node: &Sexpr) -> Result<ParsedSymbol, ExtractError> {
     if items.len() < 2 {
         return Err(ExtractError::UnnamedSymbol);
     }
-    let name = items[1].as_text().ok_or(ExtractError::UnnamedSymbol)?.to_string();
+    let name = items[1]
+        .as_text()
+        .ok_or(ExtractError::UnnamedSymbol)?
+        .to_string();
     let mut sym = ParsedSymbol {
         name,
         ..Default::default()
     };
 
     for child in &items[2..] {
-        let Some((head, rest)) = child.list_head() else { continue };
+        let Some((head, rest)) = child.list_head() else {
+            continue;
+        };
         match head {
             "extends" => {
                 if let Some(p) = rest.first().and_then(Sexpr::as_text) {
@@ -164,12 +198,14 @@ fn extract_sub_symbol(
     let items = node.as_list().unwrap();
     let sub_name = items.get(1).and_then(Sexpr::as_text).unwrap_or("");
     let (unit, body_style) = parse_unit_suffix(sub_name, parent_name).unwrap_or((0, 1));
-    if !out.units.iter().any(|&u| u == (unit, body_style)) {
+    if !out.units.contains(&(unit, body_style)) {
         out.units.push((unit, body_style));
     }
 
     for child in &items[2..] {
-        let Some((head, rest)) = child.list_head() else { continue };
+        let Some((head, rest)) = child.list_head() else {
+            continue;
+        };
         match head {
             "pin" => {
                 if let Some(p) = extract_pin(rest, unit, body_style)? {
@@ -207,7 +243,9 @@ fn extract_property(rest: &[Sexpr]) -> Result<Option<(String, ParsedProperty)>, 
         justify: String::new(),
     };
     for child in &rest[2..] {
-        let Some((head, r)) = child.list_head() else { continue };
+        let Some((head, r)) = child.list_head() else {
+            continue;
+        };
         match head {
             "at" => {
                 let (x, y, rot) = read_at(r);
@@ -217,7 +255,13 @@ fn extract_property(rest: &[Sexpr]) -> Result<Option<(String, ParsedProperty)>, 
             }
             "hide" => p.hide = first_yes_no(r),
             "show_name" => p.show_name = first_yes_no(r),
-            "effects" => read_effects(r, &mut p.font_size, &mut p.italic, &mut p.bold, &mut p.justify),
+            "effects" => read_effects(
+                r,
+                &mut p.font_size,
+                &mut p.italic,
+                &mut p.bold,
+                &mut p.justify,
+            ),
             _ => {}
         }
     }
@@ -248,7 +292,9 @@ fn extract_pin(
         body_style,
     };
     for child in &rest[2..] {
-        let Some((head, r)) = child.list_head() else { continue };
+        let Some((head, r)) = child.list_head() else {
+            continue;
+        };
         match head {
             "at" => {
                 let (x, y, rot) = read_at(r);
@@ -306,7 +352,10 @@ fn extract_graphic(
 
     // text's content is at position 0 of rest
     let text_content = if kind_tag == "text" {
-        rest.first().and_then(Sexpr::as_text).unwrap_or("").to_string()
+        rest.first()
+            .and_then(Sexpr::as_text)
+            .unwrap_or("")
+            .to_string()
     } else {
         String::new()
     };
@@ -314,7 +363,9 @@ fn extract_graphic(
     let scan_start = if kind_tag == "text" { 1 } else { 0 };
 
     for child in &rest[scan_start..] {
-        let Some((head, r)) = child.list_head() else { continue };
+        let Some((head, r)) = child.list_head() else {
+            continue;
+        };
         match head {
             "start" => {
                 let (x, y, _) = read_at(r);
@@ -343,7 +394,9 @@ fn extract_graphic(
             }
             "pts" => {
                 for p in r {
-                    let Some((h, pr)) = p.list_head() else { continue };
+                    let Some((h, pr)) = p.list_head() else {
+                        continue;
+                    };
                     if h == "xy" {
                         let (x, y, _) = read_at(pr);
                         points.push((x, y));
@@ -352,7 +405,9 @@ fn extract_graphic(
             }
             "stroke" => {
                 for c in r {
-                    let Some((sh, sr)) = c.list_head() else { continue };
+                    let Some((sh, sr)) = c.list_head() else {
+                        continue;
+                    };
                     match sh {
                         "width" => {
                             if let Some(t) = sr.first().and_then(Sexpr::as_text) {
@@ -393,7 +448,14 @@ fn extract_graphic(
     let kind = match kind_tag {
         "rectangle" => ParsedGraphicKind::Rectangle { sx, sy, ex, ey },
         "circle" => ParsedGraphicKind::Circle { cx, cy, radius },
-        "arc" => ParsedGraphicKind::Arc { sx, sy, mx, my, ex, ey },
+        "arc" => ParsedGraphicKind::Arc {
+            sx,
+            sy,
+            mx,
+            my,
+            ex,
+            ey,
+        },
         "polyline" => ParsedGraphicKind::Polyline { points },
         "bezier" => ParsedGraphicKind::Bezier { points },
         "text" => ParsedGraphicKind::Text {
@@ -428,8 +490,16 @@ fn parse_mm_to_i32(s: &str) -> i32 {
 }
 
 fn read_at(rest: &[Sexpr]) -> (i32, i32, i16) {
-    let x = rest.first().and_then(Sexpr::as_text).map(parse_mm_to_i32).unwrap_or(0);
-    let y = rest.get(1).and_then(Sexpr::as_text).map(parse_mm_to_i32).unwrap_or(0);
+    let x = rest
+        .first()
+        .and_then(Sexpr::as_text)
+        .map(parse_mm_to_i32)
+        .unwrap_or(0);
+    let y = rest
+        .get(1)
+        .and_then(Sexpr::as_text)
+        .map(parse_mm_to_i32)
+        .unwrap_or(0);
     let rot = rest
         .get(2)
         .and_then(Sexpr::as_text)
@@ -465,11 +535,15 @@ fn read_effects(
     justify: &mut String,
 ) {
     for child in rest {
-        let Some((head, r)) = child.list_head() else { continue };
+        let Some((head, r)) = child.list_head() else {
+            continue;
+        };
         match head {
             "font" => {
                 for c in r {
-                    let Some((fh, fr)) = c.list_head() else { continue };
+                    let Some((fh, fr)) = c.list_head() else {
+                        continue;
+                    };
                     match fh {
                         "size" => {
                             if let Some(t) = fr.first().and_then(Sexpr::as_text) {
@@ -591,7 +665,10 @@ mod tests {
         assert_eq!(syms.len(), 1);
         assert_eq!(syms[0].name, "R");
         // Tokito format uses bare `keywords` / `fp_filters`.
-        assert_eq!(syms[0].properties.get("keywords").unwrap().value, "R res resistor");
+        assert_eq!(
+            syms[0].properties.get("keywords").unwrap().value,
+            "R res resistor"
+        );
         assert_eq!(syms[0].properties.get("fp_filters").unwrap().value, "R_*");
     }
 

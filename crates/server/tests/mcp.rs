@@ -116,7 +116,8 @@ async fn initialize_handshake_returns_three_tools() {
             "clientInfo": {"name": "t", "version": "0"}
         }
     });
-    let init_resp = (&app).clone()
+    let init_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -233,12 +234,23 @@ async fn open_session_on(app: &axum::Router) -> String {
 async fn search_symbols_tool_returns_opamps() {
     let app = build_app(common::fixture_app_state());
     let sid = open_session_on(&app).await;
-    let msg = call_tool(&app, &sid, 2, "search_symbols", json!({"query": "opamp", "limit": 5})).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "search_symbols",
+        json!({"query": "opamp", "limit": 5}),
+    )
+    .await;
     let text = msg["result"]["content"][0]["text"].as_str().unwrap();
     let inner: Value = serde_json::from_str(text).unwrap();
     assert!(inner["total"].as_u64().unwrap() >= 2);
-    let names: Vec<&str> = inner["items"].as_array().unwrap()
-        .iter().map(|i| i["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = inner["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap())
+        .collect();
     assert!(names.contains(&"ROOT_OP"));
 }
 
@@ -246,7 +258,14 @@ async fn search_symbols_tool_returns_opamps() {
 async fn get_symbol_tool_resolves_extending_child() {
     let app = build_app(common::fixture_app_state());
     let sid = open_session_on(&app).await;
-    let msg = call_tool(&app, &sid, 2, "get_symbol", json!({"lib": "Amplifier_Op", "name": "LMxxx_A"})).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "get_symbol",
+        json!({"lib": "Amplifier_Op", "name": "LMxxx_A"}),
+    )
+    .await;
     let text = msg["result"]["content"][0]["text"].as_str().unwrap();
     let inner: Value = serde_json::from_str(text).unwrap();
     assert_eq!(inner["name"], "LMxxx_A");
@@ -295,7 +314,17 @@ async fn list_libraries_tool_returns_both() {
 async fn get_symbol_with_unknown_returns_tool_error() {
     let app = build_app(common::fixture_app_state());
     let sid = open_session_on(&app).await;
-    let msg = call_tool(&app, &sid, 2, "get_symbol", json!({"lib":"Device", "name":"NoSuch"})).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "get_symbol",
+        json!({"lib":"Device", "name":"NoSuch"}),
+    )
+    .await;
     // MCP returns a tool-level error as a JSON-RPC error response
-    assert!(msg.get("error").is_some(), "expected JSON-RPC error: got {msg}");
+    assert!(
+        msg.get("error").is_some(),
+        "expected JSON-RPC error: got {msg}"
+    );
 }

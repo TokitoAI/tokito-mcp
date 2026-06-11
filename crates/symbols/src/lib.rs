@@ -5,8 +5,8 @@
 //! `parent_id` until a non-NULL body is found, then overlays the child's
 //! property columns onto the parent's body.
 
-pub mod model;
 pub mod db;
+pub mod model;
 pub mod resolver;
 pub mod search;
 
@@ -34,7 +34,11 @@ pub enum Error {
     #[error("postcard decode: {0}")]
     Postcard(#[from] postcard::Error),
     #[error("schema version mismatch: artifact={artifact} supported={min}..={current}")]
-    SchemaVersionMismatch { artifact: u32, min: u32, current: u32 },
+    SchemaVersionMismatch {
+        artifact: u32,
+        min: u32,
+        current: u32,
+    },
     #[error("symbol {lib:?}:{name:?} not found")]
     SymbolNotFound { lib: String, name: String },
     #[error("extends chain exceeds depth cap of {0}")]

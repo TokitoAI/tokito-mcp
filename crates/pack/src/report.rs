@@ -114,7 +114,11 @@ pub fn write_build_log(
     writeln!(f, "tokito-mcp-pack build report")?;
     writeln!(f, "=====================================")?;
     writeln!(f)?;
-    writeln!(f, "Source:     gitlab.com/kicad/libraries/kicad-symbols @ {}", m.source_commit)?;
+    writeln!(
+        f,
+        "Source:     gitlab.com/kicad/libraries/kicad-symbols @ {}",
+        m.source_commit
+    )?;
     writeln!(f, "Generated:  {}", m.generated_at)?;
     writeln!(f, "Generator:  tokito-mcp-pack {}", m.generator_version)?;
     writeln!(f, "Schema:     v{}", m.schema_version)?;

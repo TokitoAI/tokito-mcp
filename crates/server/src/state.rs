@@ -49,9 +49,7 @@ fn load_manifest(conn: &Connection) -> Manifest {
         Ok(s) => s,
         Err(_) => return m,
     };
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    });
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)));
     if let Ok(rows) = rows {
         for r in rows.flatten() {
             match r.0.as_str() {

@@ -135,6 +135,8 @@ impl Sexpr {
         }
     }
 
+    /// Atom-only accessor (rejects strings). Kept for symmetry with `as_str_node`.
+    #[allow(dead_code)]
     pub fn as_atom(&self) -> Option<&str> {
         match self {
             Sexpr::Atom(a) => Some(a),
@@ -142,6 +144,8 @@ impl Sexpr {
         }
     }
 
+    /// String-only accessor (rejects atoms). Kept for symmetry with `as_atom`.
+    #[allow(dead_code)]
     pub fn as_str_node(&self) -> Option<&str> {
         match self {
             Sexpr::Str(s) => Some(s),

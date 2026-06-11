@@ -36,7 +36,12 @@ async fn request_json(uri: &str) -> (StatusCode, Value) {
 async fn health_endpoint_returns_ok() {
     let app = build_app(common::fixture_app_state());
     let resp = app
-        .oneshot(Request::builder().uri("/v1/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/v1/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -60,8 +65,15 @@ async fn libraries_returns_two_with_counts() {
     assert_eq!(status, StatusCode::OK);
     let arr = v.as_array().unwrap();
     assert_eq!(arr.len(), 2);
-    let by_name: std::collections::HashMap<_, _> =
-        arr.iter().map(|r| (r["name"].as_str().unwrap(), r["symbol_count"].as_u64().unwrap())).collect();
+    let by_name: std::collections::HashMap<_, _> = arr
+        .iter()
+        .map(|r| {
+            (
+                r["name"].as_str().unwrap(),
+                r["symbol_count"].as_u64().unwrap(),
+            )
+        })
+        .collect();
     assert_eq!(by_name["Device"], 1);
     assert_eq!(by_name["Amplifier_Op"], 2);
 }
@@ -111,7 +123,11 @@ async fn get_extending_child_returns_parent_body() {
     let parent = v["parent"].as_array().unwrap();
     assert_eq!(parent[0], "Amplifier_Op");
     assert_eq!(parent[1], "ROOT_OP");
-    assert_eq!(v["body"]["pins"].as_array().unwrap().len(), 5, "inherits parent pins");
+    assert_eq!(
+        v["body"]["pins"].as_array().unwrap().len(),
+        5,
+        "inherits parent pins"
+    );
     assert_eq!(v["description"], "Single low-noise opamp, DIP-8");
     assert_eq!(v["fp_filters"], "DIP-8*");
 }

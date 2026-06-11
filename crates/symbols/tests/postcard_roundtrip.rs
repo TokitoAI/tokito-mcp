@@ -29,7 +29,10 @@ fn build_sample() -> SymbolBody {
                     start: Point { x: -100, y: -100 },
                     end: Point { x: 100, y: 100 },
                 },
-                stroke: Stroke { width: 25, kind: StrokeKind::Default },
+                stroke: Stroke {
+                    width: 25,
+                    kind: StrokeKind::Default,
+                },
                 fill: Fill::None,
             },
             Graphic {
@@ -38,11 +41,17 @@ fn build_sample() -> SymbolBody {
                 kind: GraphicKind::Polyline {
                     points: vec![Point { x: 0, y: 0 }, Point { x: 50, y: 50 }],
                 },
-                stroke: Stroke { width: 0, kind: StrokeKind::Dash },
+                stroke: Stroke {
+                    width: 0,
+                    kind: StrokeKind::Dash,
+                },
                 fill: Fill::Outline,
             },
         ],
-        units: vec![Unit { unit: 1, body_style: 1 }],
+        units: vec![Unit {
+            unit: 1,
+            body_style: 1,
+        }],
         props_layout: vec![PropPlacement {
             key: PropKey::Reference,
             at: Point { x: 0, y: 100 },

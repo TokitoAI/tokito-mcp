@@ -32,12 +32,7 @@ impl Resolver {
     }
 
     /// Materialise a symbol by `(lib, name)`. Borrows `&Connection` short.
-    pub fn resolve(
-        &self,
-        conn: &Connection,
-        lib: &str,
-        name: &str,
-    ) -> Result<Arc<ResolvedSymbol>> {
+    pub fn resolve(&self, conn: &Connection, lib: &str, name: &str) -> Result<Arc<ResolvedSymbol>> {
         let id = lookup_id(conn, lib, name)?;
         self.resolve_by_id(conn, id)
     }
@@ -72,7 +67,9 @@ impl Resolver {
             .find_map(|row| row.body.as_ref().map(|b| (row.body_format.as_deref(), b)));
 
         let body = match body_blob {
-            Some((Some(BODY_FORMAT_POSTCARD_V1), bytes)) => postcard::from_bytes::<SymbolBody>(bytes)?,
+            Some((Some(BODY_FORMAT_POSTCARD_V1), bytes)) => {
+                postcard::from_bytes::<SymbolBody>(bytes)?
+            }
             Some((Some(other), _)) => return Err(Error::UnknownBodyFormat(other.to_string())),
             Some((None, _)) | None => SymbolBody {
                 pins: vec![],
