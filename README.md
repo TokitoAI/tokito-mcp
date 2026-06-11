@@ -7,7 +7,7 @@
 - **MCP** (`POST /mcp`) — streamable HTTP JSON-RPC for LLM agents.
 - **REST** (`GET /v1/*`) — the same queries for humans and non-MCP clients.
 
-Both faces hit the same in-process store: ~22.7k symbols across 270+ libraries, with extends-chains resolved (a child symbol's body comes back fully merged with its parent) and FTS5-ranked search.
+Both faces hit the same in-process store: ~22.7k symbols across 220+ libraries, with extends-chains resolved (a child symbol's body comes back fully merged with its parent) and FTS5-ranked search.
 
 ## Workspace
 
@@ -21,6 +21,18 @@ crates/
 The server is read-only. `pack` is the only writer.
 
 ## Quick start
+
+### Docker
+
+```bash
+docker pull ghcr.io/vtrontokito/tokito-mcp:latest
+docker run -p 8090:8090 ghcr.io/vtrontokito/tokito-mcp:latest
+curl http://localhost:8090/v1/health
+```
+
+The image bakes in `symbols.sqlite` — no volume mount needed.
+
+### From source
 
 Prereqs: Rust 1.88+. `sqlite3` is bundled via `rusqlite`'s `bundled` feature (no system dep).
 
@@ -54,7 +66,7 @@ Four tools:
 |------|---------|
 | `search_symbols` | FTS5 ranked search across symbol name, description, keywords (`{query, limit}`) |
 | `get_symbol` | Fetch a symbol by `{lib, name}` with its parent's body merged in |
-| `list_libraries` | Enumerate the ~270 libraries in the artifact |
+| `list_libraries` | Enumerate the ~220 libraries in the artifact |
 | `find_compatible` | Pin-count and footprint-pattern filter (`{pins, fp_pattern, query?, limit?}`) |
 
 Example client config (Claude Desktop or any MCP client supporting streamable HTTP):
