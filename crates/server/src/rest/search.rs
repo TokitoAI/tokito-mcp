@@ -12,6 +12,22 @@ use crate::{error::AppError, state::AppState};
 const DEFAULT_LIMIT: u32 = 20;
 const MAX_LIMIT: u32 = 200;
 
+// Length caps for user-supplied query / lib / fp_pattern, mirroring the
+// MCP face. Anything bigger is almost certainly hostile input headed at
+// FTS5's worst-case parse path.
+const MAX_QUERY_LEN: usize = 256;
+const MAX_LIB_NAME_LEN: usize = 64;
+const MAX_FP_PATTERN_LEN: usize = 64;
+
+fn check_len(field: &str, value: &str, max: usize) -> Result<(), AppError> {
+    if value.len() > max {
+        return Err(AppError::BadRequest(format!(
+            "`{field}` exceeds {max} bytes"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SearchParams {
     pub q: String,
@@ -32,6 +48,10 @@ pub async fn search(
 ) -> Result<Json<SearchResponse>, AppError> {
     if p.q.trim().is_empty() {
         return Err(AppError::BadRequest("query parameter `q` is empty".into()));
+    }
+    check_len("q", &p.q, MAX_QUERY_LEN)?;
+    if let Some(lib) = p.lib.as_deref() {
+        check_len("lib", lib, MAX_LIB_NAME_LEN)?;
     }
     let limit = p.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let query = p.q.clone();
@@ -110,6 +130,15 @@ pub async fn find_compatible(
             "at least one of `pins`, `fp_pattern`, or `query` is required".into(),
         ));
     }
+    if let Some(q) = p.query.as_deref() {
+        check_len("query", q, MAX_QUERY_LEN)?;
+    }
+    if let Some(pat) = p.fp_pattern.as_deref() {
+        check_len("fp_pattern", pat, MAX_FP_PATTERN_LEN)?;
+    }
+    if let Some(lib) = p.lib.as_deref() {
+        check_len("lib", lib, MAX_LIB_NAME_LEN)?;
+    }
     let limit = p.limit.unwrap_or(50).clamp(1, 200);
 
     let conn = s.conn.clone();
@@ -139,8 +168,13 @@ pub async fn list_symbols(
     Path(lib): Path<String>,
     Query(p): Query<ListParams>,
 ) -> Result<Json<ListResponse>, AppError> {
-    let limit = p.limit.unwrap_or(200).clamp(1, 2000);
-    let offset = p.offset.unwrap_or(0);
+    check_len("lib", &lib, MAX_LIB_NAME_LEN)?;
+    // Lowered from 2000 — audit flagged the previous cap as a 10x outlier
+    // that let a single client pull multi-MB JSON per request and hold the
+    // global mutex for the duration of the stream.
+    let limit = p.limit.unwrap_or(200).clamp(1, 200);
+    // Cap offset too so an attacker can't sweep ascending offsets to bust caches.
+    let offset = p.offset.unwrap_or(0).min(50_000);
     let lib_filter = lib.clone();
 
     let conn = s.conn.clone();
