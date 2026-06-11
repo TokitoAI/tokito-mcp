@@ -102,8 +102,8 @@ pub fn build(conn: &mut Connection, items: Vec<Ingested>) -> Result<Stats, EmitE
                 &ps.name,
                 prop(props, "Reference"),
                 prop(props, "Description"),
-                prop(props, "ki_keywords"),
-                prop(props, "ki_fp_filters"),
+                prop_either(props, "ki_keywords", "keywords"),
+                prop_either(props, "ki_fp_filters", "fp_filters"),
                 prop(props, "Datasheet"),
                 prop(props, "Footprint"),
                 pin_count,
@@ -164,6 +164,22 @@ pub fn build(conn: &mut Connection, items: Vec<Ingested>) -> Result<Stats, EmitE
 
 fn prop(props: &std::collections::BTreeMap<String, ParsedProperty>, key: &str) -> String {
     props.get(key).map(|p| p.value.clone()).unwrap_or_default()
+}
+
+/// Looks up a property under either of two keys — used to accept both the
+/// KiCad-style `ki_keywords` / `ki_fp_filters` and the Tokito-style
+/// `keywords` / `fp_filters` without forcing the caller to know which file
+/// format produced the input.
+fn prop_either(
+    props: &std::collections::BTreeMap<String, ParsedProperty>,
+    primary: &str,
+    fallback: &str,
+) -> String {
+    props
+        .get(primary)
+        .or_else(|| props.get(fallback))
+        .map(|p| p.value.clone())
+        .unwrap_or_default()
 }
 
 fn pack_flags(f: &ParsedFlags) -> i64 {
