@@ -37,7 +37,9 @@ struct ErrInner<'a> {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code) = match &self {
-            AppError::Symbols(SymErr::SymbolNotFound { .. }) => (StatusCode::NOT_FOUND, "not_found"),
+            AppError::Symbols(SymErr::SymbolNotFound { .. }) => {
+                (StatusCode::NOT_FOUND, "not_found")
+            }
             AppError::Symbols(SymErr::SchemaVersionMismatch { .. }) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "schema_mismatch")
             }

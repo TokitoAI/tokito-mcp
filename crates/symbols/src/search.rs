@@ -79,9 +79,8 @@ SELECT l.name, s.name, s.ref_des, s.description, s.keywords,
 
 pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Vec<SymbolRef>> {
     // Bind parameters in a stable order regardless of which filters are set.
-    let mut sql = String::from(
-        "SELECT l.name, s.name, s.ref_des, s.description, s.keywords, s.pin_count, ",
-    );
+    let mut sql =
+        String::from("SELECT l.name, s.name, s.ref_des, s.description, s.keywords, s.pin_count, ");
     if opts.query.is_some() {
         sql.push_str("bm25(symbol_fts) AS score FROM symbol_fts ");
         sql.push_str("JOIN symbol s ON s.id = symbol_fts.rowid ");

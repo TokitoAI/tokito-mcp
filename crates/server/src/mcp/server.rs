@@ -138,7 +138,11 @@ impl Tokito {
         .map_err(map_sym)?;
 
         let total = items.len();
-        let response = SearchResponseJson { query, total, items };
+        let response = SearchResponseJson {
+            query,
+            total,
+            items,
+        };
         ok_json(&response)
     }
 

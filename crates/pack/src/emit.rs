@@ -12,13 +12,14 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection};
 use tokito_symbols::model::{
-    Fill, Graphic, GraphicKind, Justify, Pin, PinElectrical, PinStyle, Point,
-    PropKey, PropPlacement, StrokeKind, SymbolBody, SymbolFlags, Unit,
+    Fill, Graphic, GraphicKind, Justify, Pin, PinElectrical, PinStyle, Point, PropKey,
+    PropPlacement, StrokeKind, SymbolBody, SymbolFlags, Unit,
 };
 
 use crate::{ingest::Ingested, kicad::*};
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)] // DanglingExtends is reported via Stats today; reserved as an error variant.
 pub enum EmitError {
     #[error("sqlite: {0}")]
     Sql(#[from] rusqlite::Error),
@@ -46,8 +47,7 @@ pub fn build(conn: &mut Connection, items: Vec<Ingested>) -> Result<Stats, EmitE
     let mut items = items;
     // Deterministic insertion order: lib then name.
     items.sort_by(|a, b| {
-        (a.lib.as_str(), a.symbol.name.as_str())
-            .cmp(&(b.lib.as_str(), b.symbol.name.as_str()))
+        (a.lib.as_str(), a.symbol.name.as_str()).cmp(&(b.lib.as_str(), b.symbol.name.as_str()))
     });
 
     let tx = conn.transaction()?;
@@ -93,7 +93,9 @@ pub fn build(conn: &mut Connection, items: Vec<Ingested>) -> Result<Stats, EmitE
                 root_count += 1;
                 Some(postcard::to_stdvec(&build_body(ps))?)
             };
-            let body_format = body_blob.as_ref().map(|_| tokito_symbols::BODY_FORMAT_POSTCARD_V1);
+            let body_format = body_blob
+                .as_ref()
+                .map(|_| tokito_symbols::BODY_FORMAT_POSTCARD_V1);
             let pin_count = ps.pins.len() as i64;
             let flags_bits = pack_flags(&ps.flags);
 
@@ -119,10 +121,11 @@ pub fn build(conn: &mut Connection, items: Vec<Ingested>) -> Result<Stats, EmitE
     // --- pass 2: link parent_id ---
     let mut dangling: Vec<(String, String, String)> = Vec::new();
     {
-        let mut update =
-            tx.prepare("UPDATE symbol SET parent_id = ?1 WHERE id = ?2")?;
+        let mut update = tx.prepare("UPDATE symbol SET parent_id = ?1 WHERE id = ?2")?;
         for it in &items {
-            let Some(parent_name) = &it.symbol.extends else { continue };
+            let Some(parent_name) = &it.symbol.extends else {
+                continue;
+            };
             let lib_id = lib_ids[&it.lib];
             let child_id = sym_ids[&(lib_id, it.symbol.name.clone())];
             match sym_ids.get(&(lib_id, parent_name.clone())) {
@@ -198,7 +201,10 @@ fn build_body(ps: &ParsedSymbol) -> SymbolBody {
         units: ps
             .units
             .iter()
-            .map(|&(u, b)| Unit { unit: u, body_style: b })
+            .map(|&(u, b)| Unit {
+                unit: u,
+                body_style: b,
+            })
             .collect(),
         props_layout: ps
             .properties
@@ -275,7 +281,14 @@ fn convert_graphic(g: &ParsedGraphic) -> Graphic {
                 center: Point { x: *cx, y: *cy },
                 radius: *radius,
             },
-            ParsedGraphicKind::Arc { sx, sy, mx, my, ex, ey } => GraphicKind::Arc {
+            ParsedGraphicKind::Arc {
+                sx,
+                sy,
+                mx,
+                my,
+                ex,
+                ey,
+            } => GraphicKind::Arc {
                 start: Point { x: *sx, y: *sy },
                 mid: Point { x: *mx, y: *my },
                 end: Point { x: *ex, y: *ey },
@@ -286,15 +299,20 @@ fn convert_graphic(g: &ParsedGraphic) -> Graphic {
             ParsedGraphicKind::Bezier { points } => GraphicKind::Bezier {
                 points: points.iter().map(|&(x, y)| Point { x, y }).collect(),
             },
-            ParsedGraphicKind::Text { x, y, rotation, content, italic, bold } => {
-                GraphicKind::Text {
-                    at: Point { x: *x, y: *y },
-                    rotation: *rotation,
-                    content: content.clone(),
-                    italic: *italic,
-                    bold: *bold,
-                }
-            }
+            ParsedGraphicKind::Text {
+                x,
+                y,
+                rotation,
+                content,
+                italic,
+                bold,
+            } => GraphicKind::Text {
+                at: Point { x: *x, y: *y },
+                rotation: *rotation,
+                content: content.clone(),
+                italic: *italic,
+                bold: *bold,
+            },
         },
         stroke: tokito_symbols::model::Stroke {
             width: g.stroke_width,

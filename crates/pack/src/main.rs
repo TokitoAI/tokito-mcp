@@ -39,7 +39,9 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let args = Args::parse();
@@ -59,7 +61,10 @@ fn main() -> anyhow::Result<()> {
         tracing::warn!(error = %e, "ingest error");
     }
     if errors.len() > 20 {
-        tracing::warn!(more = errors.len() - 20, "additional ingest errors suppressed");
+        tracing::warn!(
+            more = errors.len() - 20,
+            "additional ingest errors suppressed"
+        );
     }
 
     let t_emit = Instant::now();
@@ -67,9 +72,7 @@ fn main() -> anyhow::Result<()> {
     let stats = emit::build(&mut conn, items)?;
 
     // Write generator metadata into the meta table.
-    let generated_at = chrono::Utc::now()
-        .format("%Y-%m-%dT%H:%M:%SZ")
-        .to_string();
+    let generated_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let generator_version = env!("CARGO_PKG_VERSION");
     write_meta(&conn, "source_commit", &args.source_commit)?;
     write_meta(&conn, "generator_version", generator_version)?;

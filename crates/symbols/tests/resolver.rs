@@ -30,7 +30,10 @@ fn extending_child_inherits_parent_body_and_keeps_own_metadata() {
         "parent (lib,name) preserved on resolved output"
     );
     assert_eq!(s.body.pins.len(), 5, "child inherits parent's pins");
-    assert_eq!(s.body.pins[0].name, "PIN1", "pin names come from parent body");
+    assert_eq!(
+        s.body.pins[0].name, "PIN1",
+        "pin names come from parent body"
+    );
     assert_eq!(
         s.description, "Single low-noise opamp, DIP-8",
         "child keeps its own description (not parent's)"

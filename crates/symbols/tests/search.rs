@@ -43,7 +43,10 @@ fn fts_filters_by_library() {
         },
     )
     .unwrap();
-    assert!(any.len() > scoped.len(), "scoped should drop non-Device hits");
+    assert!(
+        any.len() > scoped.len(),
+        "scoped should drop non-Device hits"
+    );
     for h in &scoped {
         assert_eq!(h.lib, "Device");
     }

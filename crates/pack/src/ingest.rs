@@ -13,6 +13,8 @@ use crate::{kicad, sexpr};
 pub struct Ingested {
     pub lib: String,
     pub symbol: kicad::ParsedSymbol,
+    /// File path the symbol came from — kept for error reporting.
+    #[allow(dead_code)]
     pub source: PathBuf,
 }
 
@@ -39,17 +41,17 @@ pub fn ingest_all(root: &Path) -> (Vec<Ingested>, Vec<IngestError>) {
         .filter_map(|e| e.ok())
         .filter(|e| {
             e.file_type().is_file()
-                && e.path().extension().map(|s| s == "kicad_sym").unwrap_or(false)
+                && e.path()
+                    .extension()
+                    .map(|s| s == "kicad_sym")
+                    .unwrap_or(false)
         })
         .map(|e| e.into_path())
         .collect();
 
     tracing::info!(count = files.len(), "discovered .kicad_sym files");
 
-    let (oks, errs): (Vec<_>, Vec<_>) = files
-        .par_iter()
-        .map(parse_one)
-        .partition(Result::is_ok);
+    let (oks, errs): (Vec<_>, Vec<_>) = files.par_iter().map(parse_one).partition(Result::is_ok);
 
     let ingested: Vec<Ingested> = oks.into_iter().flat_map(Result::unwrap).collect();
     let errors: Vec<IngestError> = errs.into_iter().map(|r| r.unwrap_err()).collect();

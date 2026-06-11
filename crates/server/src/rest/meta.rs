@@ -3,7 +3,10 @@
 use axum::{extract::State, Json};
 use tokito_symbols::search::LibInfo;
 
-use crate::{error::AppError, state::{AppState, Manifest}};
+use crate::{
+    error::AppError,
+    state::{AppState, Manifest},
+};
 
 pub async fn health() -> &'static str {
     "ok"

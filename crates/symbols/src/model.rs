@@ -91,12 +91,32 @@ pub struct Graphic {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GraphicKind {
-    Rectangle { start: Point, end: Point },
-    Circle { center: Point, radius: i32 },
-    Arc { start: Point, mid: Point, end: Point },
-    Polyline { points: Vec<Point> },
-    Bezier { points: Vec<Point> },
-    Text { at: Point, rotation: i16, content: String, italic: bool, bold: bool },
+    Rectangle {
+        start: Point,
+        end: Point,
+    },
+    Circle {
+        center: Point,
+        radius: i32,
+    },
+    Arc {
+        start: Point,
+        mid: Point,
+        end: Point,
+    },
+    Polyline {
+        points: Vec<Point>,
+    },
+    Bezier {
+        points: Vec<Point>,
+    },
+    Text {
+        at: Point,
+        rotation: i16,
+        content: String,
+        italic: bool,
+        bold: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

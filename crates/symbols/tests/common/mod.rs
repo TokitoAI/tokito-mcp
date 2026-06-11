@@ -25,9 +25,11 @@ pub fn fixture_db() -> Connection {
     .unwrap();
 
     // libs
-    conn.execute("INSERT INTO lib(name) VALUES('Device')", []).unwrap();
+    conn.execute("INSERT INTO lib(name) VALUES('Device')", [])
+        .unwrap();
     let device_id: i64 = conn.last_insert_rowid();
-    conn.execute("INSERT INTO lib(name) VALUES('Amplifier_Op')", []).unwrap();
+    conn.execute("INSERT INTO lib(name) VALUES('Amplifier_Op')", [])
+        .unwrap();
     let op_id: i64 = conn.last_insert_rowid();
 
     // Device:R (root)
@@ -65,10 +67,22 @@ pub fn fixture_db() -> Connection {
                 start: Point { x: -102, y: -254 },
                 end: Point { x: 102, y: 254 },
             },
-            stroke: Stroke { width: 25, kind: StrokeKind::Default },
+            stroke: Stroke {
+                width: 25,
+                kind: StrokeKind::Default,
+            },
             fill: Fill::None,
         }],
-        units: vec![Unit { unit: 0, body_style: 1 }, Unit { unit: 1, body_style: 1 }],
+        units: vec![
+            Unit {
+                unit: 0,
+                body_style: 1,
+            },
+            Unit {
+                unit: 1,
+                body_style: 1,
+            },
+        ],
         props_layout: vec![],
         flags: SymbolFlags::default(),
     };
@@ -94,7 +108,7 @@ pub fn fixture_db() -> Connection {
                 electrical: PinElectrical::Input,
                 style: PinStyle::Line,
                 x: 0,
-                y: n as i32 * 100,
+                y: n * 100,
                 rotation: 0,
                 length: 100,
                 unit: 1,
@@ -102,7 +116,10 @@ pub fn fixture_db() -> Connection {
             })
             .collect(),
         graphics: vec![],
-        units: vec![Unit { unit: 1, body_style: 1 }],
+        units: vec![Unit {
+            unit: 1,
+            body_style: 1,
+        }],
         props_layout: vec![],
         flags: SymbolFlags::default(),
     };
@@ -144,6 +161,7 @@ pub fn fixture_db() -> Connection {
     conn
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_symbol(
     conn: &Connection,
     lib_id: i64,

@@ -50,7 +50,7 @@ const ROOT_OP: &str = r#"(kicad_symbol_lib
         (name "V-" (effects (font (size 1.27 1.27))))
         (number "5" (effects (font (size 1.27 1.27))))))))"#;
 
-const CHILD_LMxxx: &str = r#"(kicad_symbol_lib
+const CHILD_LM_XXX: &str = r#"(kicad_symbol_lib
   (version 20251024)
   (symbol "LMxxx_A"
     (extends "ROOT_OP")
@@ -70,7 +70,7 @@ fn end_to_end_build_from_fixture_dir() {
     std::fs::create_dir(&amp_dir).unwrap();
     std::fs::write(device_dir.join("R.kicad_sym"), ROOT_R).unwrap();
     std::fs::write(amp_dir.join("ROOT_OP.kicad_sym"), ROOT_OP).unwrap();
-    std::fs::write(amp_dir.join("LMxxx_A.kicad_sym"), CHILD_LMxxx).unwrap();
+    std::fs::write(amp_dir.join("LMxxx_A.kicad_sym"), CHILD_LM_XXX).unwrap();
 
     let out = tmp.path().join("symbols.sqlite");
 
@@ -140,7 +140,10 @@ fn end_to_end_build_from_fixture_dir() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(fts_hits >= 2, "expected FTS to return at least the two opamps");
+    assert!(
+        fts_hits >= 2,
+        "expected FTS to return at least the two opamps"
+    );
 
     // No dangling extends — every parent reference resolved
     let dangling: i64 = conn
@@ -155,9 +158,11 @@ fn end_to_end_build_from_fixture_dir() {
 
     // meta has source_commit + generator_version + counts
     let commit: String = conn
-        .query_row("SELECT value FROM meta WHERE key='source_commit'", [], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT value FROM meta WHERE key='source_commit'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(commit, "test-fixture");
 
