@@ -29,7 +29,7 @@ pub async fn get_symbol(
     let conn = s.conn.clone();
     let resolver = s.resolver.clone();
     let resolved = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().unwrap();
+        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
         resolver.resolve(&c, &lib, &name)
     })
     .await??;

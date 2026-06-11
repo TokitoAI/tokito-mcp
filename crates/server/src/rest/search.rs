@@ -58,7 +58,7 @@ pub async fn search(
 
     let conn = s.conn.clone();
     let items: Vec<SymbolRef> = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().unwrap();
+        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
         search::search(
             &c,
             search::SearchOpts {
@@ -143,7 +143,7 @@ pub async fn find_compatible(
 
     let conn = s.conn.clone();
     let items: Vec<SymbolRef> = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().unwrap();
+        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
         search::find_compatible(
             &c,
             search::CompatibleOpts {
@@ -179,7 +179,7 @@ pub async fn list_symbols(
 
     let conn = s.conn.clone();
     let (total, items): (u64, Vec<LibSymbol>) = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().unwrap();
+        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
 
         let total: u64 = c.query_row(
             "SELECT COUNT(*) FROM symbol s JOIN lib l ON l.id = s.lib_id WHERE l.name = ?1",

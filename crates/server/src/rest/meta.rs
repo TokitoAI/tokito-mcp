@@ -19,7 +19,7 @@ pub async fn manifest(State(s): State<AppState>) -> Json<Manifest> {
 pub async fn libraries(State(s): State<AppState>) -> Result<Json<Vec<LibInfo>>, AppError> {
     let conn = s.conn.clone();
     let libs = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().unwrap();
+        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
         tokito_symbols::search::list_libraries(&c)
     })
     .await??;
