@@ -93,10 +93,12 @@ pub enum ExtractError {
     BadValue { key: &'static str, detail: String },
 }
 
-/// Extract every top-level `(symbol ...)` from a parsed `.kicad_sym` file.
+/// Extract every top-level `(symbol ...)` from a parsed `.kicad_sym` or
+/// `.tokito_sym` file. Both formats are syntactically identical at the
+/// container level, only the root tag and a couple of property names differ.
 pub fn extract_lib(root: &Sexpr) -> Result<Vec<ParsedSymbol>, ExtractError> {
     let (head, rest) = root.list_head().ok_or(ExtractError::NotLibFile)?;
-    if head != "kicad_symbol_lib" {
+    if head != "kicad_symbol_lib" && head != "tokito_symbol_lib" {
         return Err(ExtractError::NotLibFile);
     }
     let mut out = Vec::new();
@@ -564,6 +566,34 @@ mod tests {
     (extends "ATmega48PV-10A")
     (property "Value" "ATmega328P-A" (at 0 0 0))
     (property "Description" "20MHz MCU" (at 0 0 0))))"#;
+
+    const TOKITO_FORMAT_R: &str = r#"(tokito_symbol_lib
+  (version 20251024)
+  (generator "tokito_symbol_gen")
+  (generator_version "2.0")
+  (symbol "R"
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "R" (at 2.032 0 90))
+    (property "Value" "R" (at 0 0 90))
+    (property "Description" "Resistor" (at 0 0 0))
+    (property "keywords" "R res resistor" (at 0 0 0))
+    (property "fp_filters" "R_*" (at 0 0 0))
+    (symbol "R_1_1"
+      (pin passive line (at 0 3.81 270) (length 1.27)
+        (name "" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27))))))))"#;
+
+    #[test]
+    fn parses_tokito_format_root() {
+        let tree = sexpr::parse(TOKITO_FORMAT_R).unwrap();
+        let syms = extract_lib(&tree).unwrap();
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].name, "R");
+        // Tokito format uses bare `keywords` / `fp_filters`.
+        assert_eq!(syms[0].properties.get("keywords").unwrap().value, "R res resistor");
+        assert_eq!(syms[0].properties.get("fp_filters").unwrap().value, "R_*");
+    }
 
     #[test]
     fn parses_extends_child() {
