@@ -27,14 +27,28 @@ pub type McpService = rmcp::transport::streamable_http_server::StreamableHttpSer
 >;
 
 /// Re-exported via mod.rs so main.rs doesn't have to know rmcp internals.
-pub fn build_mcp_service(state: AppState) -> McpService {
+///
+/// `allowed_hosts: None` keeps rmcp's safe loopback-only default (DNS-rebinding
+/// guard); `Some(list)` overrides it for public deployments. `allowed_origins`
+/// enables MCP `Origin` validation when non-empty (empty = disabled, the rmcp
+/// default).
+pub fn build_mcp_service(
+    state: AppState,
+    allowed_hosts: Option<Vec<String>>,
+    allowed_origins: Vec<String>,
+) -> McpService {
     use rmcp::transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
     };
+    let mut config = StreamableHttpServerConfig::default();
+    if let Some(hosts) = allowed_hosts {
+        config.allowed_hosts = hosts;
+    }
+    config.allowed_origins = allowed_origins;
     StreamableHttpService::new(
         move || Ok(Tokito::new(state.clone())),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default(),
+        config,
     )
 }
 

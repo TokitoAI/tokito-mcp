@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use tokito_mcp_server::{build_app, state::AppState};
+use tokito_mcp_server::{build_app_with_config, state::AppState, ServerConfig};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -21,6 +21,17 @@ struct Args {
     /// Resolver LRU capacity (resolved symbols cached per process).
     #[arg(long, default_value_t = 2048, env = "TOKITO_MCP_CACHE")]
     cache: u64,
+
+    /// Comma-separated `Host` authorities allowed on the MCP face (DNS-rebinding
+    /// guard). Empty keeps the safe default (loopback only). Public deployments
+    /// set their real host(s), e.g. "mcp.tokito.dev,mcp.tokito.dev:9443".
+    #[arg(long, value_delimiter = ',', env = "TOKITO_MCP_ALLOWED_HOSTS")]
+    allowed_hosts: Vec<String>,
+
+    /// Comma-separated browser origins allowed for REST CORS and MCP `Origin`
+    /// validation. Empty disables both. e.g. "https://app.tokito.dev".
+    #[arg(long, value_delimiter = ',', env = "TOKITO_MCP_ALLOWED_ORIGINS")]
+    allowed_origins: Vec<String>,
 }
 
 #[tokio::main]
@@ -43,7 +54,17 @@ async fn main() -> anyhow::Result<()> {
         "artifact loaded"
     );
 
-    let app = build_app(state).layer(TraceLayer::new_for_http());
+    let cfg = ServerConfig {
+        allowed_hosts: (!args.allowed_hosts.is_empty()).then_some(args.allowed_hosts),
+        allowed_origins: args.allowed_origins,
+    };
+    tracing::info!(
+        allowed_hosts = ?cfg.allowed_hosts,
+        allowed_origins = ?cfg.allowed_origins,
+        "exposure config (allowed_hosts None = loopback-only default)"
+    );
+
+    let app = build_app_with_config(state, cfg).layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&args.addr).await?;
     tracing::info!(addr = %args.addr, "listening");
