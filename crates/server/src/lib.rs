@@ -37,12 +37,16 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 /// indefinitely; better to return 503 fast and let the client retry/back off.
 pub const MAX_CONCURRENT_REQUESTS: usize = 64;
 
+/// Default cap on concurrent MCP sessions (see `ServerConfig::max_sessions`).
+pub const DEFAULT_MAX_SESSIONS: usize = 256;
+
 /// Network-exposure config plumbed from the CLI / env (see `main.rs`).
 ///
 /// Both faces are public-facing, so each guards a different vector:
 /// `allowed_hosts` is the MCP DNS-rebinding `Host` allowlist; `allowed_origins`
-/// gates browser `Origin` (MCP `Origin` validation + the REST CORS layer).
-#[derive(Debug, Clone, Default)]
+/// gates browser `Origin` (MCP `Origin` validation + the REST CORS layer);
+/// `max_sessions` bounds the MCP session map against an `initialize`-loop DoS.
+#[derive(Debug, Clone)]
 pub struct ServerConfig {
     /// MCP `Host` authorities. `None` keeps rmcp's safe default (loopback only);
     /// `Some(list)` overrides it — public deployments set their real host(s).
@@ -50,6 +54,18 @@ pub struct ServerConfig {
     /// Browser origins allowed for REST CORS *and* MCP `Origin` validation.
     /// Empty = no CORS layer and MCP `Origin` checking stays disabled.
     pub allowed_origins: Vec<String>,
+    /// Maximum concurrent MCP sessions; `create_session` past this is rejected.
+    pub max_sessions: usize,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            allowed_hosts: None,
+            allowed_origins: Vec::new(),
+            max_sessions: DEFAULT_MAX_SESSIONS,
+        }
+    }
 }
 
 /// Build the router with default exposure config (loopback-only MCP host
@@ -72,6 +88,7 @@ pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
             state.clone(),
             cfg.allowed_hosts.clone(),
             cfg.allowed_origins.clone(),
+            cfg.max_sessions,
         ));
 
     let mut rest = rest::routes().with_state(state);

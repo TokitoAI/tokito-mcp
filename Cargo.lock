@@ -1604,6 +1604,7 @@ dependencies = [
  "axum",
  "bytes",
  "clap",
+ "futures",
  "http-body-util",
  "postcard",
  "rmcp",
