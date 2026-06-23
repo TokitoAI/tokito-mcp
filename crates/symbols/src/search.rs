@@ -99,11 +99,14 @@ pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Ve
         params.push(Box::new(p as i64));
     }
     if let Some(pat) = opts.fp_pattern {
+        // `pat` is a literal substring, not a LIKE pattern: escape `%`, `_` (and
+        // the escape char itself) so they match literally rather than as
+        // wildcards, and declare the escape char with `ESCAPE '\'`.
         sql.push_str(&format!(
-            "AND (s.fp_filters LIKE ?{n} OR s.footprint LIKE ?{n}) ",
+            "AND (s.fp_filters LIKE ?{n} ESCAPE '\\' OR s.footprint LIKE ?{n} ESCAPE '\\') ",
             n = params.len() + 1
         ));
-        params.push(Box::new(format!("%{pat}%")));
+        params.push(Box::new(format!("%{}%", escape_like(pat))));
     }
     if let Some(lib) = opts.lib_filter {
         sql.push_str(&format!("AND l.name = ?{} ", params.len() + 1));
@@ -124,6 +127,15 @@ pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Ve
         .query_map(rusqlite::params_from_iter(param_refs), row_to_ref)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// Escape SQL `LIKE` metacharacters so a user-supplied substring matches
+/// literally. Pairs with `ESCAPE '\'` in the query. The backslash must be
+/// escaped first so we don't double-escape the escapes we add.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// Cheap listing of library names + their symbol counts.

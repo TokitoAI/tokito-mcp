@@ -66,3 +66,36 @@ async fn combines_pins_and_query() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["items"].as_array().unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn fp_pattern_underscore_is_literal_not_wildcard() {
+    // `_` is a LIKE single-char wildcard; escaped, it must match a literal
+    // underscore. Only the resistor's fp_filters ("R_*") contains one — an
+    // unescaped `%_%` would match every symbol with a non-empty footprint field.
+    let (status, v) = request_json("/v1/compatible?fp_pattern=_").await;
+    assert_eq!(status, StatusCode::OK);
+    let names: Vec<&str> = v["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["R"],
+        "expected only the literal-underscore match"
+    );
+}
+
+#[tokio::test]
+async fn fp_pattern_percent_is_literal_not_wildcard() {
+    // `%25` decodes to `%`. As a wildcard it would match everything; escaped, it
+    // matches a literal `%`, which no fixture footprint contains.
+    let (status, v) = request_json("/v1/compatible?fp_pattern=%25").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        v["items"].as_array().unwrap().is_empty(),
+        "literal % should match nothing, got {:?}",
+        v["items"]
+    );
+}
