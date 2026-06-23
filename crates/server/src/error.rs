@@ -55,10 +55,16 @@ impl IntoResponse for AppError {
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Join(_) => (StatusCode::INTERNAL_SERVER_ERROR, "join"),
         };
-        let message = self.to_string();
-        if status == StatusCode::INTERNAL_SERVER_ERROR {
-            tracing::error!(%code, %message, "internal error");
-        }
+        // Never leak internal detail (raw rusqlite / postcard / io strings) to
+        // clients: on 5xx, log the full error server-side and return a generic
+        // message. The stable `code` still tells the client the category. 4xx
+        // (bad_request / not_found) carry their descriptive, client-safe message.
+        let message = if status == StatusCode::INTERNAL_SERVER_ERROR {
+            tracing::error!(%code, detail = %self, "internal error");
+            "internal server error".to_string()
+        } else {
+            self.to_string()
+        };
         let body = Json(ErrBody {
             error: ErrInner { code, message },
         });
