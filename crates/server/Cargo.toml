@@ -44,6 +44,7 @@ rmcp = { version = "1", default-features = false, features = [
 ] }
 schemars = "0.8"
 tokio-util = "0.7"
+futures = "0.3"
 
 tracing.workspace = true
 tracing-subscriber.workspace = true

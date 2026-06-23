@@ -32,6 +32,11 @@ struct Args {
     /// validation. Empty disables both. e.g. "https://app.tokito.dev".
     #[arg(long, value_delimiter = ',', env = "TOKITO_MCP_ALLOWED_ORIGINS")]
     allowed_origins: Vec<String>,
+
+    /// Maximum concurrent MCP sessions. `initialize` past this is rejected, so a
+    /// scripted session loop can't grow the session map / task count unbounded.
+    #[arg(long, default_value_t = tokito_mcp_server::DEFAULT_MAX_SESSIONS, env = "TOKITO_MCP_MAX_SESSIONS")]
+    max_sessions: usize,
 }
 
 #[tokio::main]
@@ -57,10 +62,12 @@ async fn main() -> anyhow::Result<()> {
     let cfg = ServerConfig {
         allowed_hosts: (!args.allowed_hosts.is_empty()).then_some(args.allowed_hosts),
         allowed_origins: args.allowed_origins,
+        max_sessions: args.max_sessions,
     };
     tracing::info!(
         allowed_hosts = ?cfg.allowed_hosts,
         allowed_origins = ?cfg.allowed_origins,
+        max_sessions = cfg.max_sessions,
         "exposure config (allowed_hosts None = loopback-only default)"
     );
 
