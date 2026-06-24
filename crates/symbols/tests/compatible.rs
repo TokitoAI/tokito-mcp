@@ -98,6 +98,50 @@ fn lib_filter_is_respected() {
 }
 
 #[test]
+fn fp_pattern_escapes_like_wildcards() {
+    let conn = common::fixture_db();
+
+    // `_` is a LIKE single-char wildcard; escaped it must match a literal
+    // underscore. Only R's fp_filters ("R_*") contains one — unescaped, `%_%`
+    // would match all three fixtures.
+    let underscore = search::find_compatible(
+        &conn,
+        CompatibleOpts {
+            pins: None,
+            fp_pattern: Some("_"),
+            query: None,
+            limit: 100,
+            lib_filter: None,
+        },
+    )
+    .unwrap();
+    let names: Vec<&str> = underscore.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["R"],
+        "`_` must match literally, not as a wildcard"
+    );
+
+    // `%` as a wildcard matches everything; escaped it matches a literal `%`,
+    // which no fixture footprint contains.
+    let percent = search::find_compatible(
+        &conn,
+        CompatibleOpts {
+            pins: None,
+            fp_pattern: Some("%"),
+            query: None,
+            limit: 100,
+            lib_filter: None,
+        },
+    )
+    .unwrap();
+    assert!(
+        percent.is_empty(),
+        "`%` must match literally, not as a wildcard; got {percent:?}"
+    );
+}
+
+#[test]
 fn no_query_orders_deterministically_by_pin_count() {
     let conn = common::fixture_db();
     let hits = search::find_compatible(
