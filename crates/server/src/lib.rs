@@ -10,9 +10,11 @@ pub mod state;
 
 use std::time::Duration;
 
+use axum::http::{header, HeaderValue, Method};
 use axum::Router;
 use state::AppState;
 use tower::ServiceBuilder;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
@@ -35,24 +37,65 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 /// indefinitely; better to return 503 fast and let the client retry/back off.
 pub const MAX_CONCURRENT_REQUESTS: usize = 64;
 
+/// Network-exposure config plumbed from the CLI / env (see `main.rs`).
+///
+/// Both faces are public-facing, so each guards a different vector:
+/// `allowed_hosts` is the MCP DNS-rebinding `Host` allowlist; `allowed_origins`
+/// gates browser `Origin` (MCP `Origin` validation + the REST CORS layer).
+#[derive(Debug, Clone, Default)]
+pub struct ServerConfig {
+    /// MCP `Host` authorities. `None` keeps rmcp's safe default (loopback only);
+    /// `Some(list)` overrides it — public deployments set their real host(s).
+    pub allowed_hosts: Option<Vec<String>>,
+    /// Browser origins allowed for REST CORS *and* MCP `Origin` validation.
+    /// Empty = no CORS layer and MCP `Origin` checking stays disabled.
+    pub allowed_origins: Vec<String>,
+}
+
+/// Build the router with default exposure config (loopback-only MCP host
+/// allowlist, no CORS). Convenience for tests and local runs.
+pub fn build_app(state: AppState) -> Router {
+    build_app_with_config(state, ServerConfig::default())
+}
+
 /// Build the fully-assembled router with both REST and MCP faces.
 ///
 /// Layer ordering: timeout + concurrency-limit wrap the outer router so they
 /// apply to BOTH faces; the MCP service gets its own body limit because
 /// `nest_service` bypasses axum's `DefaultBodyLimit` and our outer REST limit
-/// is too tight for MCP envelopes.
-pub fn build_app(state: AppState) -> Router {
+/// is too tight for MCP envelopes. CORS is applied to the REST face only — the
+/// MCP service does its own `Origin` validation internally.
+pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
     let mcp_service = ServiceBuilder::new()
         .layer(RequestBodyLimitLayer::new(MCP_BODY_LIMIT_BYTES))
-        .service(mcp::build_mcp_service(state.clone()));
+        .service(mcp::build_mcp_service(
+            state.clone(),
+            cfg.allowed_hosts.clone(),
+            cfg.allowed_origins.clone(),
+        ));
+
+    let mut rest = rest::routes().with_state(state);
+    if !cfg.allowed_origins.is_empty() {
+        rest = rest.layer(cors_layer(&cfg.allowed_origins));
+    }
 
     Router::new()
-        .merge(rest::routes())
-        .with_state(state)
+        .merge(rest)
         .nest_service("/mcp", mcp_service)
         .layer(RequestBodyLimitLayer::new(REST_BODY_LIMIT_BYTES))
         .layer(TimeoutLayer::new(REQUEST_TIMEOUT))
         .layer(tower::limit::ConcurrencyLimitLayer::new(
             MAX_CONCURRENT_REQUESTS,
         ))
+}
+
+/// CORS for the REST face. REST is read-only (GET), so we allow only GET and the
+/// `Content-Type` header, scoped to the configured origins. Unparseable origin
+/// entries are dropped (a misconfig narrows access rather than widening it).
+fn cors_layer(origins: &[String]) -> CorsLayer {
+    let list: Vec<HeaderValue> = origins.iter().filter_map(|o| o.parse().ok()).collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(list))
+        .allow_methods([Method::GET])
+        .allow_headers([header::CONTENT_TYPE])
 }

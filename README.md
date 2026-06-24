@@ -106,6 +106,10 @@ Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "messag
 | `--db` | `TOKITO_MCP_DB` | _(required)_ | Path to `symbols.sqlite` |
 | `--addr` | `TOKITO_MCP_ADDR` | `127.0.0.1:8090` | Bind address |
 | `--cache` | `TOKITO_MCP_CACHE` | `2048` | Per-process resolved-symbol LRU capacity |
+| `--allowed-hosts` | `TOKITO_MCP_ALLOWED_HOSTS` | _(loopback only)_ | Comma-separated `Host` authorities allowed on `/mcp` (DNS-rebinding guard). Public deployments set their real host(s), e.g. `mcp.tokito.dev,mcp.tokito.dev:9443`. Empty keeps the safe loopback default. |
+| `--allowed-origins` | `TOKITO_MCP_ALLOWED_ORIGINS` | _(none)_ | Comma-separated browser origins for REST CORS **and** MCP `Origin` validation, e.g. `https://app.tokito.dev`. Empty disables both. |
+
+> **Behind a reverse proxy:** set `TOKITO_MCP_ALLOWED_HOSTS` to the public host so `/mcp` accepts proxied requests directly — that's the clean alternative to rewriting the upstream `Host` header at the proxy.
 
 Tracing: `RUST_LOG=tokito_mcp_server=debug,tower_http=debug cargo run ...`.
 
