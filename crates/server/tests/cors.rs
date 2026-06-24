@@ -39,6 +39,7 @@ async fn mcp_rejects_host_not_in_allowlist() {
     let cfg = ServerConfig {
         allowed_hosts: Some(vec!["example.com".into()]),
         allowed_origins: vec![],
+        ..Default::default()
     };
     assert_eq!(
         mcp_init_status(cfg, "localhost").await,
@@ -52,6 +53,7 @@ async fn mcp_accepts_configured_host() {
     let cfg = ServerConfig {
         allowed_hosts: Some(vec!["example.com".into()]),
         allowed_origins: vec![],
+        ..Default::default()
     };
     let st = mcp_init_status(cfg, "example.com").await;
     assert!(
@@ -75,6 +77,7 @@ async fn rest_sets_cors_header_for_allowed_origin() {
     let cfg = ServerConfig {
         allowed_hosts: None,
         allowed_origins: vec!["https://app.example.com".into()],
+        ..Default::default()
     };
     let app = build_app_with_config(common::fixture_app_state(), cfg);
     let resp = app

@@ -21,24 +21,25 @@ use tokito_symbols::search;
 
 use crate::state::AppState;
 
-pub type McpService = rmcp::transport::streamable_http_server::StreamableHttpService<
-    Tokito,
-    rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
->;
+use super::capped::CappedSessionManager;
+
+pub type McpService =
+    rmcp::transport::streamable_http_server::StreamableHttpService<Tokito, CappedSessionManager>;
 
 /// Re-exported via mod.rs so main.rs doesn't have to know rmcp internals.
 ///
 /// `allowed_hosts: None` keeps rmcp's safe loopback-only default (DNS-rebinding
 /// guard); `Some(list)` overrides it for public deployments. `allowed_origins`
 /// enables MCP `Origin` validation when non-empty (empty = disabled, the rmcp
-/// default).
+/// default). `max_sessions` bounds concurrent sessions via `CappedSessionManager`.
 pub fn build_mcp_service(
     state: AppState,
     allowed_hosts: Option<Vec<String>>,
     allowed_origins: Vec<String>,
+    max_sessions: usize,
 ) -> McpService {
     use rmcp::transport::streamable_http_server::{
-        session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+        StreamableHttpServerConfig, StreamableHttpService,
     };
     let mut config = StreamableHttpServerConfig::default();
     if let Some(hosts) = allowed_hosts {
@@ -47,7 +48,7 @@ pub fn build_mcp_service(
     config.allowed_origins = allowed_origins;
     StreamableHttpService::new(
         move || Ok(Tokito::new(state.clone())),
-        Arc::new(LocalSessionManager::default()),
+        Arc::new(CappedSessionManager::new(max_sessions)),
         config,
     )
 }
