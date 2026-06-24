@@ -297,24 +297,33 @@ fn check_len(field: &str, value: &str, max: usize) -> Result<(), McpError> {
 }
 
 fn ok_json<T: Serialize>(v: &T) -> Result<CallToolResult, McpError> {
-    let s = serde_json::to_string(v).map_err(|e| {
-        McpError::new(
-            ErrorCode::INTERNAL_ERROR,
-            format!("serialize response: {e}"),
-            None,
-        )
-    })?;
+    let s = serde_json::to_string(v).map_err(|e| internal("serialize response", &e))?;
     Ok(CallToolResult::success(vec![Content::text(s)]))
 }
 
 fn map_sym(e: tokito_symbols::Error) -> McpError {
-    let code = match &e {
-        tokito_symbols::Error::SymbolNotFound { .. } => ErrorCode::INVALID_PARAMS,
-        _ => ErrorCode::INTERNAL_ERROR,
-    };
-    McpError::new(code, e.to_string(), None)
+    match &e {
+        // Client-safe: tells them the symbol they asked for doesn't exist.
+        tokito_symbols::Error::SymbolNotFound { .. } => {
+            McpError::new(ErrorCode::INVALID_PARAMS, e.to_string(), None)
+        }
+        // Everything else can carry raw rusqlite/postcard detail — don't leak it.
+        _ => internal("symbol lookup", &e),
+    }
 }
 
 fn map_join(e: tokio::task::JoinError) -> McpError {
-    McpError::new(ErrorCode::INTERNAL_ERROR, e.to_string(), None)
+    internal("task join", &e)
+}
+
+/// Internal MCP error: log the detail server-side, return a generic message so
+/// raw rusqlite/postcard/io strings never reach the client (mirrors the REST
+/// face's 5xx handling).
+fn internal(context: &str, detail: &dyn std::fmt::Display) -> McpError {
+    tracing::error!(%context, %detail, "mcp internal error");
+    McpError::new(
+        ErrorCode::INTERNAL_ERROR,
+        "internal server error".to_string(),
+        None,
+    )
 }
