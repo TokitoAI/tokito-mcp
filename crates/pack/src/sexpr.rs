@@ -24,12 +24,20 @@ pub enum ParseError {
     UnterminatedString(usize),
     #[error("trailing garbage after root expression at byte {0}")]
     Trailing(usize),
+    #[error("nesting too deep (exceeded {MAX_DEPTH}) at byte {0}")]
+    TooDeep(usize),
 }
+
+/// Maximum list-nesting depth. The parser is recursive, so an attacker-supplied
+/// file with N open parens would recurse N frames and overflow the stack. Real
+/// `.kicad_sym` symbols nest only a handful of levels deep; 1024 is far beyond
+/// any legitimate input but well under the stack-overflow threshold.
+const MAX_DEPTH: u32 = 1024;
 
 pub fn parse(src: &str) -> Result<Sexpr, ParseError> {
     let mut cur = 0;
     skip_ws(src.as_bytes(), &mut cur);
-    let root = parse_one(src.as_bytes(), &mut cur)?;
+    let root = parse_one(src.as_bytes(), &mut cur, 0)?;
     skip_ws(src.as_bytes(), &mut cur);
     if cur != src.len() {
         return Err(ParseError::Trailing(cur));
@@ -37,19 +45,22 @@ pub fn parse(src: &str) -> Result<Sexpr, ParseError> {
     Ok(root)
 }
 
-fn parse_one(b: &[u8], cur: &mut usize) -> Result<Sexpr, ParseError> {
+fn parse_one(b: &[u8], cur: &mut usize, depth: u32) -> Result<Sexpr, ParseError> {
+    if depth > MAX_DEPTH {
+        return Err(ParseError::TooDeep(*cur));
+    }
     if *cur >= b.len() {
         return Err(ParseError::Eof);
     }
     match b[*cur] {
-        b'(' => parse_list(b, cur),
+        b'(' => parse_list(b, cur, depth),
         b'"' => parse_str(b, cur).map(Sexpr::Str),
         b')' => Err(ParseError::UnbalancedClose(*cur)),
         _ => Ok(Sexpr::Atom(parse_atom(b, cur))),
     }
 }
 
-fn parse_list(b: &[u8], cur: &mut usize) -> Result<Sexpr, ParseError> {
+fn parse_list(b: &[u8], cur: &mut usize, depth: u32) -> Result<Sexpr, ParseError> {
     if *cur >= b.len() || b[*cur] != b'(' {
         return Err(ParseError::ExpectedOpen(*cur));
     }
@@ -64,7 +75,8 @@ fn parse_list(b: &[u8], cur: &mut usize) -> Result<Sexpr, ParseError> {
             *cur += 1;
             return Ok(Sexpr::List(items));
         }
-        items.push(parse_one(b, cur)?);
+        // Each nested list is one level deeper; `parse_one` rejects past MAX_DEPTH.
+        items.push(parse_one(b, cur, depth + 1)?);
     }
 }
 
@@ -202,5 +214,20 @@ mod tests {
     #[test]
     fn fails_on_unterminated_string() {
         assert!(parse(r#"("oh no"#).is_err());
+    }
+
+    #[test]
+    fn deeply_nested_input_errors_instead_of_overflowing() {
+        // 10k open parens would blow the stack without the depth cap.
+        let bomb = "(".repeat(10_000);
+        assert!(matches!(parse(&bomb), Err(ParseError::TooDeep(_))));
+    }
+
+    #[test]
+    fn nesting_within_limit_still_parses() {
+        // Comfortably under MAX_DEPTH — must still parse fine.
+        let n = 100;
+        let src = format!("{}{}", "(".repeat(n), ")".repeat(n));
+        assert!(parse(&src).is_ok());
     }
 }
