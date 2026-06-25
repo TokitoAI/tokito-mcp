@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::{Error, Result, CURRENT_SCHEMA_VERSION, MIN_COMPATIBLE_VERSION, SCHEMA_SQL};
 
 /// Open the artifact read-only with mmap enabled. Used by the server at boot
-/// and (eventually) by the desktop's loader for the slim catalog.
+/// and by the desktop's catalog loader (`tokito-catalog`).
 pub fn open_read_only(path: &Path) -> Result<Connection> {
     let conn = Connection::open_with_flags(
         path,

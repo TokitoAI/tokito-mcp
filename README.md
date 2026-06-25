@@ -116,7 +116,7 @@ Tracing: `RUST_LOG=tokito_mcp_server=debug,tower_http=debug cargo run ...`.
 
 ## Artifact format
 
-`symbols.sqlite` is a self-contained SQLite database. Schema lives in [`crates/symbols/src/schema.sql`](crates/symbols/src/schema.sql). Symbol bodies (pins, graphics, fp_filters) are stored as compact [postcard](https://crates.io/crates/postcard) blobs decoded lazily; an FTS5 virtual table backs `search_symbols`. The `pack` CLI also accepts `--slim-out` to emit a metadata-only variant (body columns NULLed) for desktop bundles that don't need geometry.
+`symbols.sqlite` is a self-contained SQLite database — the single catalog artifact, consumed by both the hosted server and the desktop app. Schema lives in [`crates/symbols/src/schema.sql`](crates/symbols/src/schema.sql). Symbol bodies (pins, graphics, fp_filters) are stored as compact [postcard](https://crates.io/crates/postcard) blobs decoded lazily; an FTS5 virtual table backs `search_symbols`.
 
 Alongside `symbols.sqlite`, `pack` writes:
 
