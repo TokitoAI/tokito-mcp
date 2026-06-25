@@ -1,6 +1,9 @@
 //! tokito-mcp-pack — builds `symbols.sqlite` from a checkout of CERN's
-//! kicad-symbols repo, optionally also a slim `catalog.sqlite` and a
-//! `manifest.json` + `build.log` for PR review.
+//! kicad-symbols repo, plus a `manifest.json` + `build.log` for PR review.
+//!
+//! `symbols.sqlite` is the single shipped catalog: symbol bodies (geometry)
+//! together with the FTS index. It is the one artifact consumed by both the
+//! hosted server and the desktop app (`tokito-catalog/build.rs`).
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -25,11 +28,6 @@ struct Args {
     /// Output path for the built `symbols.sqlite`. Overwritten if it exists.
     #[arg(long)]
     out: PathBuf,
-
-    /// Optional output path for the slim `catalog.sqlite` (same schema, body
-    /// columns NULLed, embeddings table dropped — the desktop bundle).
-    #[arg(long)]
-    slim_out: Option<PathBuf>,
 
     /// CERN git SHA the source was checked out at. Stored in `meta` and
     /// `manifest.json`.
@@ -83,8 +81,7 @@ fn main() -> anyhow::Result<()> {
     // Compact the file so the released artifact is minimal.
     conn.execute_batch("VACUUM;")?;
 
-    // Top libs for the build log (do it before slim — slim has the same
-    // metadata, but easier to query once here).
+    // Top libs for the build log.
     let top_libs = report::collect_top_libs(&conn, 15)?;
     drop(conn);
 
@@ -101,12 +98,6 @@ fn main() -> anyhow::Result<()> {
         tracing::warn!(child = %format!("{lib}:{name}"), parent = %parent, "dangling extends");
     }
 
-    // --- slim catalog ---
-    if let Some(slim_path) = args.slim_out.as_ref() {
-        build_slim_catalog(&args.out, slim_path)?;
-        tracing::info!(out = ?slim_path, "slim catalog written");
-    }
-
     // --- report ---
     let mut rep = report::Report::new(
         &stats,
@@ -117,9 +108,6 @@ fn main() -> anyhow::Result<()> {
     );
     rep.top_libs = top_libs;
     report::record_artifact(&mut rep.manifest, &args.out)?;
-    if let Some(slim_path) = args.slim_out.as_ref() {
-        report::record_artifact(&mut rep.manifest, slim_path)?;
-    }
 
     let out_dir = args
         .out
@@ -148,30 +136,4 @@ fn write_meta(conn: &rusqlite::Connection, key: &str, value: &str) -> rusqlite::
         rusqlite::params![key, value],
     )?;
     Ok(())
-}
-
-fn build_slim_catalog(full: &PathBuf, slim: &PathBuf) -> anyhow::Result<()> {
-    if slim.exists() {
-        std::fs::remove_file(slim)?;
-    }
-    let src = rusqlite::Connection::open(full)?;
-    let slim_str = slim
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("slim out path is not UTF-8: {slim:?}"))?;
-    src.execute_batch(&format!("VACUUM INTO '{}';", escape_sql(slim_str)))?;
-    drop(src);
-
-    let dst = rusqlite::Connection::open(slim)?;
-    dst.execute_batch(
-        r#"
-        UPDATE symbol SET body = NULL, body_format = NULL;
-        DROP TABLE IF EXISTS symbol_embedding;
-        VACUUM;
-        "#,
-    )?;
-    Ok(())
-}
-
-fn escape_sql(s: &str) -> String {
-    s.replace('\'', "''")
 }

@@ -55,8 +55,9 @@ CREATE TRIGGER IF NOT EXISTS symbol_au AFTER UPDATE ON symbol BEGIN
     VALUES (new.id, new.name, new.description, new.keywords, new.fp_filters);
 END;
 
--- Capability search (hosted artifact only) — populated by the builder when
--- sqlite-vec is available. Desktop slim catalog ships without this table.
+-- Capability (semantic) search — reserved for a future hosted sqlite-vec
+-- index. Not yet populated by the builder and read by no consumer today;
+-- the table ships empty (negligible size) until that lands.
 CREATE TABLE IF NOT EXISTS symbol_embedding (
     symbol_id   INTEGER PRIMARY KEY REFERENCES symbol(id),
     model       TEXT NOT NULL,
