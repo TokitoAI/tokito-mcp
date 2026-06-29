@@ -163,6 +163,8 @@ async fn initialize_handshake_returns_three_tools() {
     assert!(names.contains(&"search_symbols"));
     assert!(names.contains(&"get_symbol"));
     assert!(names.contains(&"list_libraries"));
+    assert!(names.contains(&"find_compatible"));
+    assert!(names.contains(&"part_offer_query"));
 }
 
 async fn call_tool(app: &axum::Router, sid: &str, id: i64, name: &str, args: Value) -> Value {
@@ -297,6 +299,29 @@ async fn find_compatible_requires_a_filter() {
     let sid = open_session_on(&app).await;
     let msg = call_tool(&app, &sid, 2, "find_compatible", json!({})).await;
     assert!(msg.get("error").is_some(), "expected error for no filters");
+}
+
+#[tokio::test]
+async fn part_offer_query_tool_returns_procurement_hint() {
+    let app = build_app(common::fixture_app_state());
+    let sid = open_session_on(&app).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "part_offer_query",
+        json!({"symbol_id": "Device:R", "value": "330", "package": "R_0603", "market": "IN"}),
+    )
+    .await;
+    let text = msg["result"]["content"][0]["text"].as_str().unwrap();
+    let inner: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(inner["procurement_query"], "330 resistor, 0603 package");
+    assert_eq!(inner["exact_mpn"], Value::Null);
+    assert!(inner["distributor_domains"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d == "digikey.in"));
 }
 
 #[tokio::test]

@@ -1,7 +1,9 @@
-//! MCP server implementation. Three tools wrap the same code REST uses:
+//! MCP server implementation. Tools wrap the same code REST uses:
 //!
 //!   - `search_symbols(query, limit?, lib?)`
 //!   - `get_symbol(lib, name)`
+//!   - `find_compatible(pins?, fp_pattern?, query?, lib?, limit?)`
+//!   - `part_offer_query(symbol_id?, lib?, name?, value?, package?, market?)`
 //!   - `list_libraries()`
 //!
 //! Tool handlers run heavy SQL inside `spawn_blocking` so the tokio runtime
@@ -19,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokito_symbols::search;
 
-use crate::state::AppState;
+use crate::{part_offer_query, state::AppState};
 
 use super::capped::CappedSessionManager;
 
@@ -100,6 +102,28 @@ pub struct FindCompatibleArgs {
     /// Max results to return. Defaults to 50, capped at 200.
     #[serde(default)]
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PartOfferQueryArgs {
+    /// Symbol id in `Library:Name` form, e.g. `Device:R`.
+    #[serde(default)]
+    pub symbol_id: Option<String>,
+    /// Library name, alternative to `symbol_id`.
+    #[serde(default)]
+    pub lib: Option<String>,
+    /// Symbol name, alternative to `symbol_id`.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Schematic value, e.g. `330`, `10 uF`, `Red`.
+    #[serde(default)]
+    pub value: Option<String>,
+    /// Package / footprint hint, e.g. `R_0603`.
+    #[serde(default)]
+    pub package: Option<String>,
+    /// ISO country/market hint, e.g. `IN`.
+    #[serde(default)]
+    pub market: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,6 +268,53 @@ impl Tokito {
     }
 
     #[tool(
+        description = "Build a distributor-search procurement query for a catalog symbol. \
+                       Returns symbol metadata, datasheet hints when present, market-appropriate \
+                       distributor domains, and a generic procurement_query. It does not return \
+                       live pricing or stock."
+    )]
+    async fn part_offer_query(
+        &self,
+        Parameters(args): Parameters<PartOfferQueryArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let (lib, name) = symbol_keys(
+            args.symbol_id.as_deref(),
+            args.lib.as_deref(),
+            args.name.as_deref(),
+        )?;
+        check_len("lib", &lib, MAX_LIB_NAME_LEN)?;
+        check_len("name", &name, MAX_SYMBOL_NAME_LEN)?;
+        if let Some(value) = args.value.as_deref() {
+            check_len("value", value, MAX_QUERY_LEN)?;
+        }
+        if let Some(package) = args.package.as_deref() {
+            check_len("package", package, MAX_FP_PATTERN_LEN)?;
+        }
+        if let Some(market) = args.market.as_deref() {
+            check_len("market", market, 8)?;
+        }
+
+        let symbol_id = part_offer_query::symbol_id(&lib, &name);
+        let conn = self.state.conn.clone();
+        let resolver = self.state.resolver.clone();
+        let resolved = tokio::task::spawn_blocking(move || {
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
+            resolver.resolve(&c, &lib, &name)
+        })
+        .await
+        .map_err(map_join)?
+        .map_err(map_sym)?;
+        let response = part_offer_query::build_response(
+            &symbol_id,
+            args.value.as_deref(),
+            args.package.as_deref(),
+            args.market.as_deref(),
+            Some(&resolved),
+        );
+        ok_json(&response)
+    }
+
+    #[tool(
         description = "List every library in the catalog with its symbol count. \
                        Useful for browsing — e.g. to pick a domain (Amplifier_Operational, \
                        MCU_*, Connector_*) before narrowing a search."
@@ -295,6 +366,38 @@ fn check_len(field: &str, value: &str, max: usize) -> Result<(), McpError> {
         ));
     }
     Ok(())
+}
+
+fn symbol_keys(
+    symbol_id: Option<&str>,
+    lib: Option<&str>,
+    name: Option<&str>,
+) -> Result<(String, String), McpError> {
+    if let Some(symbol_id) = symbol_id {
+        let Some((lib, name)) = part_offer_query::split_symbol_id(symbol_id) else {
+            return Err(McpError::new(
+                ErrorCode::INVALID_PARAMS,
+                "symbol_id must be in `Library:Name` form".to_string(),
+                None,
+            ));
+        };
+        return Ok((lib.to_string(), name.to_string()));
+    }
+    let Some(lib) = lib.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Err(McpError::new(
+            ErrorCode::INVALID_PARAMS,
+            "lib is required when symbol_id is absent".to_string(),
+            None,
+        ));
+    };
+    let Some(name) = name.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Err(McpError::new(
+            ErrorCode::INVALID_PARAMS,
+            "name is required when symbol_id is absent".to_string(),
+            None,
+        ));
+    };
+    Ok((lib.to_string(), name.to_string()))
 }
 
 fn ok_json<T: Serialize>(v: &T) -> Result<CallToolResult, McpError> {

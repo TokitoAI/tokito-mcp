@@ -5,6 +5,7 @@
 
 pub mod error;
 pub mod mcp;
+pub mod part_offer_query;
 pub mod rest;
 pub mod state;
 

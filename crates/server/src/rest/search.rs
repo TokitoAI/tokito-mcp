@@ -7,7 +7,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokito_symbols::{model::SymbolRef, search};
 
-use crate::{error::AppError, state::AppState};
+use crate::{error::AppError, part_offer_query, state::AppState};
 
 const DEFAULT_LIMIT: u32 = 20;
 const MAX_LIMIT: u32 = 200;
@@ -121,6 +121,22 @@ pub struct CompatibleResponse {
     pub items: Vec<SymbolRef>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PartOfferQueryParams {
+    /// Symbol id in `Library:Name` form, e.g. `Device:R`.
+    pub symbol_id: Option<String>,
+    /// Library name, alternative to `symbol_id`.
+    pub lib: Option<String>,
+    /// Symbol name, alternative to `symbol_id`.
+    pub name: Option<String>,
+    /// Schematic value, e.g. `330`, `10 uF`, `Red`.
+    pub value: Option<String>,
+    /// Package / footprint hint, e.g. `R_0603`.
+    pub package: Option<String>,
+    /// ISO country/market hint, e.g. `IN`.
+    pub market: Option<String>,
+}
+
 pub async fn find_compatible(
     State(s): State<AppState>,
     Query(p): Query<CompatibleParams>,
@@ -161,6 +177,41 @@ pub async fn find_compatible(
         total: items.len(),
         items,
     }))
+}
+
+pub async fn part_offer_query(
+    State(s): State<AppState>,
+    Query(p): Query<PartOfferQueryParams>,
+) -> Result<Json<part_offer_query::PartOfferQueryResponse>, AppError> {
+    let (lib, name) = symbol_keys(p.symbol_id.as_deref(), p.lib.as_deref(), p.name.as_deref())?;
+    check_len("lib", &lib, MAX_LIB_NAME_LEN)?;
+    check_len("name", &name, 128)?;
+    if let Some(value) = p.value.as_deref() {
+        check_len("value", value, MAX_QUERY_LEN)?;
+    }
+    if let Some(package) = p.package.as_deref() {
+        check_len("package", package, MAX_FP_PATTERN_LEN)?;
+    }
+    if let Some(market) = p.market.as_deref() {
+        check_len("market", market, 8)?;
+    }
+
+    let symbol_id = part_offer_query::symbol_id(&lib, &name);
+    let conn = s.conn.clone();
+    let resolver = s.resolver.clone();
+    let resolved = tokio::task::spawn_blocking(move || {
+        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
+        resolver.resolve(&c, &lib, &name)
+    })
+    .await??;
+    let response = part_offer_query::build_response(
+        &symbol_id,
+        p.value.as_deref(),
+        p.package.as_deref(),
+        p.market.as_deref(),
+        Some(&resolved),
+    );
+    Ok(Json(response))
 }
 
 pub async fn list_symbols(
@@ -215,4 +266,26 @@ pub async fn list_symbols(
         limit,
         items,
     }))
+}
+
+fn symbol_keys(
+    symbol_id: Option<&str>,
+    lib: Option<&str>,
+    name: Option<&str>,
+) -> Result<(String, String), AppError> {
+    if let Some(symbol_id) = symbol_id {
+        let (lib, name) = part_offer_query::split_symbol_id(symbol_id).ok_or_else(|| {
+            AppError::BadRequest("symbol_id must be in `Library:Name` form".into())
+        })?;
+        return Ok((lib.to_string(), name.to_string()));
+    }
+    let lib = lib
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("lib is required when symbol_id is absent".into()))?;
+    let name = name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| AppError::BadRequest("name is required when symbol_id is absent".into()))?;
+    Ok((lib.to_string(), name.to_string()))
 }
