@@ -148,3 +148,23 @@ async fn list_lib_symbols_paginates() {
     assert_eq!(v["limit"], 1);
     assert_eq!(v["items"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn part_offer_query_returns_procurement_hint() {
+    let (status, v) =
+        request_json("/v1/part-offer-query?symbol_id=Device:R&value=330&package=R_0603&market=IN")
+            .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["symbol_id"], "Device:R");
+    assert_eq!(v["procurement_query"], "330 resistor, 0603 package");
+    assert_eq!(v["exact_mpn"], Value::Null);
+    let domains = v["distributor_domains"].as_array().unwrap();
+    assert!(domains.iter().any(|d| d == "digikey.in"));
+}
+
+#[tokio::test]
+async fn part_offer_query_requires_symbol_key() {
+    let (status, v) = request_json("/v1/part-offer-query?value=330").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"]["code"], "bad_request");
+}

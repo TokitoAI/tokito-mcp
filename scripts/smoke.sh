@@ -164,6 +164,14 @@ check "GET /v1/compatible?pins=32&fp_pattern=TQFP&query=AVR narrows further" bas
     jq_ge ".total" 1
 '
 
+check "GET /v1/part-offer-query returns procurement hint" bash -c '
+    get_json "/v1/part-offer-query?symbol_id=Device:R&value=330&package=R_0603&market=IN"
+    [[ "$STATUS" == "200" ]] || { echo "status $STATUS"; exit 1; }
+    jq_eq ".symbol_id" "Device:R"
+    jq_eq ".procurement_query" "330 resistor, 0603 package"
+    jq -e ".distributor_domains | index(\"digikey.in\")" /tmp/smoke_resp >/dev/null
+'
+
 # -------------------------------------------------------------- 2. MCP face
 echo ""
 echo "${B}MCP${X}"
@@ -190,13 +198,13 @@ curl -s -o /dev/null -X POST "$URL/mcp" \
     -H "mcp-session-id: $SID" \
     -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 
-check "MCP tools/list returns 4 tools" bash -c '
+check "MCP tools/list returns 5 tools" bash -c '
     SID=$(cat /tmp/smoke_sid)
     post_mcp "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}" "$SID"
     [[ "$STATUS" == "200" ]] || { echo "status $STATUS"; exit 1; }
     mcp_data
-    jq_eq ".result.tools | length" "4"
-    jq -e ".result.tools | map(.name) | contains([\"search_symbols\",\"get_symbol\",\"list_libraries\",\"find_compatible\"])" /tmp/smoke_resp >/dev/null
+    jq_eq ".result.tools | length" "5"
+    jq -e ".result.tools | map(.name) | contains([\"search_symbols\",\"get_symbol\",\"list_libraries\",\"find_compatible\",\"part_offer_query\"])" /tmp/smoke_resp >/dev/null
 '
 
 check "MCP tools/call search_symbols returns opamp hits" bash -c '
@@ -253,6 +261,16 @@ check "MCP tools/call find_compatible without filters returns error" bash -c '
     [[ "$STATUS" == "200" ]] || { echo "status $STATUS"; exit 1; }
     mcp_data
     jq -e ".error" /tmp/smoke_resp >/dev/null
+'
+
+check "MCP tools/call part_offer_query returns procurement hint" bash -c '
+    SID=$(cat /tmp/smoke_sid)
+    post_mcp "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"part_offer_query\",\"arguments\":{\"symbol_id\":\"Device:R\",\"value\":\"330\",\"package\":\"R_0603\",\"market\":\"IN\"}}}" "$SID"
+    [[ "$STATUS" == "200" ]] || { echo "status $STATUS"; exit 1; }
+    mcp_data
+    INNER=$(jq -r ".result.content[0].text" /tmp/smoke_resp)
+    [[ "$(echo "$INNER" | jq -r ".procurement_query")" == "330 resistor, 0603 package" ]]
+    echo "$INNER" | jq -e ".distributor_domains | index(\"digikey.in\")" >/dev/null
 '
 
 # -------------------------------------------------------------- summary

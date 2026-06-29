@@ -60,7 +60,7 @@ cargo run --release -p tokito-mcp-server -- --db ./symbols.sqlite
 
 Endpoint: `POST /mcp` (streamable HTTP JSON-RPC, `mcp-session-id` header).
 
-Four tools:
+Five tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -68,6 +68,7 @@ Four tools:
 | `get_symbol` | Fetch a symbol by `{lib, name}` with its parent's body merged in |
 | `list_libraries` | Enumerate the ~220 libraries in the artifact |
 | `find_compatible` | Pin-count and footprint-pattern filter (`{pins, fp_pattern, query?, limit?}`) |
+| `part_offer_query` | Build a distributor-search procurement hint for a catalog symbol (`{symbol_id?, lib?, name?, value?, package?, market?}`); does not return live pricing |
 
 Example client config (Claude Desktop or any MCP client supporting streamable HTTP):
 
@@ -94,6 +95,7 @@ All under `/v1`, all JSON:
 | `GET /v1/search?q=&limit=` | FTS5 search (`bad_request` on empty query) |
 | `GET /v1/symbols/:lib/:name` | Full symbol with extends resolved (404 if missing) |
 | `GET /v1/compatible?pins=&fp_pattern=&query=&limit=` | Pin+footprint filter (`bad_request` if no filter) |
+| `GET /v1/part-offer-query?symbol_id=&value=&package=&market=` | Distributor-search procurement hint for a catalog symbol; use `lib=&name=` instead of `symbol_id=` if preferred |
 
 Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "message": "..."}}`.
 
