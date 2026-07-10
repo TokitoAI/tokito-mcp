@@ -1,0 +1,33 @@
+services:
+  server:
+    image: ${TOKITO_MCP_IMAGE:?set TOKITO_MCP_IMAGE to an immutable GHCR release tag}
+    restart: unless-stopped
+    environment:
+      TOKITO_MCP_ADDR: 0.0.0.0:8090
+      TOKITO_MCP_ALLOWED_HOSTS: mcp.tokito.dev
+      TOKITO_MCP_MAX_SESSIONS: ${TOKITO_MCP_MAX_SESSIONS:-256}
+      RUST_LOG: ${RUST_LOG:-tokito_mcp_server=info,tower_http=info}
+    expose:
+      - "8090"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:?set CLOUDFLARED_IMAGE to an approved version and digest}
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      server:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
