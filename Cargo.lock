@@ -1577,7 +1577,7 @@ dependencies = [
 
 [[package]]
 name = "tokito-mcp-pack"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1598,7 +1598,7 @@ dependencies = [
 
 [[package]]
 name = "tokito-mcp-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -1625,7 +1625,7 @@ dependencies = [
 
 [[package]]
 name = "tokito-symbols"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blake3",
  "moka",
