@@ -7,6 +7,11 @@
 - **MCP** (`POST /mcp`) — streamable HTTP JSON-RPC for LLM agents.
 - **REST** (`GET /v1/*`) — the same queries for humans and non-MCP clients.
 
+The production MCP endpoint is **`https://mcp.tokito.dev/mcp`**. Tokito
+Desktop uses this MCP face only: it does not call the REST routes or read a
+local copy of `symbols.sqlite`. The REST face remains available for operations,
+diagnostics, and independent integrations.
+
 Both faces hit the same in-process store: ~22.7k symbols across 220+ libraries, with extends-chains resolved (a child symbol's body comes back fully merged with its parent) and FTS5-ranked search.
 
 ## Workspace
@@ -25,8 +30,8 @@ The server is read-only. `pack` is the only writer.
 ### Docker
 
 ```bash
-docker pull ghcr.io/vtrontokito/tokito-mcp:latest
-docker run -p 8090:8090 ghcr.io/vtrontokito/tokito-mcp:latest
+docker pull ghcr.io/vtrontokito/tokito-mcp:v0.1.2
+docker run -p 8090:8090 ghcr.io/vtrontokito/tokito-mcp:v0.1.2
 curl http://localhost:8090/v1/health
 ```
 
@@ -54,11 +59,13 @@ cargo run --release -p tokito-mcp-server -- --db ./symbols.sqlite
 ./scripts/smoke.sh
 ```
 
-`scripts/smoke.sh` exercises every REST endpoint and every MCP tool against the running server. Override the target with `TOKITO_MCP_URL=http://host:port`.
+`scripts/smoke.sh` exercises every REST endpoint and every MCP tool against the running server. Override its base URL with `TOKITO_MCP_URL=http://host:port`. `scripts/protocol-smoke.sh` performs the smaller credential-free deploy check against an exact MCP endpoint.
 
 ## MCP face
 
-Endpoint: `POST /mcp` (streamable HTTP JSON-RPC, `mcp-session-id` header).
+Production endpoint: `https://mcp.tokito.dev/mcp` (streamable HTTP JSON-RPC,
+`mcp-session-id` header). A local server exposes the same route at
+`http://127.0.0.1:8090/mcp`.
 
 Five tools:
 
@@ -76,11 +83,20 @@ Example client config (Claude Desktop or any MCP client supporting streamable HT
 {
   "mcpServers": {
     "tokito": {
-      "url": "http://127.0.0.1:8090/mcp"
+      "url": "https://mcp.tokito.dev/mcp"
     }
   }
 }
 ```
+
+### Session lifetime
+
+Sessions are ephemeral. A disconnected or abandoned MCP session expires after
+60 seconds. If a request using an old `mcp-session-id` is rejected, or the
+connection/server restarts, the client must perform a fresh `initialize`,
+store the newly returned session ID, send `notifications/initialized`, and
+retry only work that is safe to repeat. Session IDs are not durable across
+deployments.
 
 ## REST face
 
@@ -114,11 +130,25 @@ Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "messag
 
 > **Behind a reverse proxy:** set `TOKITO_MCP_ALLOWED_HOSTS` to the public host so `/mcp` accepts proxied requests directly — that's the clean alternative to rewriting the upstream `Host` header at the proxy.
 
+## Production deployment
+
+Tagged releases publish `ghcr.io/vtrontokito/tokito-mcp:vX.Y.Z`. Production
+pulls an exact release tag on the VPS and exposes it through Cloudflare Tunnel;
+it never deploys `latest`. The checked-in Compose manifest, required
+configuration/secrets, health checks, external MCP smoke test, and rollback
+procedure are in [`docs/deployment.md`](docs/deployment.md).
+
 Tracing: `RUST_LOG=tokito_mcp_server=debug,tower_http=debug cargo run ...`.
 
 ## Artifact format
 
-`symbols.sqlite` is a self-contained SQLite database — the single catalog artifact, consumed by both the hosted server and the desktop app. Schema lives in [`crates/symbols/src/schema.sql`](crates/symbols/src/schema.sql). Symbol bodies (pins, graphics, fp_filters) are stored as compact [postcard](https://crates.io/crates/postcard) blobs decoded lazily; an FTS5 virtual table backs `search_symbols`.
+`symbols.sqlite` is a self-contained SQLite database baked into the hosted
+server image. Tokito Desktop consumes the catalog through MCP and does not open
+this artifact directly. Schema lives in
+[`crates/symbols/src/schema.sql`](crates/symbols/src/schema.sql). Symbol bodies
+(pins, graphics, fp_filters) are stored as compact
+[postcard](https://crates.io/crates/postcard) blobs decoded lazily; an FTS5
+virtual table backs `search_symbols`.
 
 Alongside `symbols.sqlite`, `pack` writes:
 

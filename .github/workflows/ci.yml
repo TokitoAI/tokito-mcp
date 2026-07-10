@@ -10,6 +10,19 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  version:
+    name: package + advertised version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python3 scripts/check-version.py
+
   fmt:
     name: cargo fmt
     runs-on: ubuntu-latest
@@ -51,3 +64,42 @@ jobs:
             target
           key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - run: cargo test --workspace
+
+  docker:
+    name: Docker health + MCP smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the latest released catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --repo "${{ github.repository }}" --pattern symbols.sqlite
+
+      - name: Build runtime image
+        run: docker build --tag tokito-mcp:ci .
+
+      - name: Validate image health and protocol
+        run: |
+          export TOKITO_MCP_EXPECTED_VERSION="$(
+            python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])'
+          )"
+          container="$(
+            docker run --detach \
+              --publish 127.0.0.1:8090:8090 \
+              --health-interval 2s \
+              --health-start-period 1s \
+              --env TOKITO_MCP_ALLOWED_HOSTS=localhost,localhost:8090,127.0.0.1,127.0.0.1:8090 \
+              tokito-mcp:ci
+          )"
+          trap 'docker logs "$container"; docker rm --force "$container"' EXIT
+          for attempt in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+            [[ "$status" == "healthy" ]] && break
+            [[ "$status" == "unhealthy" ]] && exit 1
+            sleep 2
+          done
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          bash scripts/protocol-smoke.sh http://127.0.0.1:8090/mcp

@@ -45,7 +45,7 @@ RUN cargo build --release -p tokito-mcp-server
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
+        ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 tokito
 
@@ -68,6 +68,6 @@ ENV TOKITO_MCP_DB=/opt/tokito/symbols.sqlite \
 EXPOSE 8090
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-    CMD wget --quiet --tries=1 --spider http://localhost:8090/v1/health || exit 1
+    CMD curl --fail --silent --show-error --max-time 2 http://localhost:8090/v1/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/tokito-mcp-server"]

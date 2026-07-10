@@ -75,6 +75,11 @@ async fn initialize_session() -> String {
     );
     let msg = parse_sse_message(&body);
     assert_eq!(msg["result"]["serverInfo"]["name"], "tokito-mcp");
+    assert_eq!(
+        msg["result"]["serverInfo"]["version"],
+        env!("CARGO_PKG_VERSION"),
+        "MCP initialize must advertise the package version"
+    );
     session.expect("server should issue an mcp-session-id")
 }
 
