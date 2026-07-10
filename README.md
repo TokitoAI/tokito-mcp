@@ -75,7 +75,7 @@ Five tools:
 | `get_symbol` | Fetch a symbol by `{lib, name}` with its parent's body merged in |
 | `list_libraries` | Enumerate the ~220 libraries in the artifact |
 | `find_compatible` | Pin-count and footprint-pattern filter (`{pins, fp_pattern, query?, limit?}`) |
-| `part_offer_query` | Build a distributor-search procurement hint for a catalog symbol (`{symbol_id?, lib?, name?, value?, package?, market?}`); does not return live pricing |
+| `part_offer_query` | Build a distributor-search procurement hint for a catalog symbol (`{symbol_id?, lib?, name?, value?, package?, market?}`); does not return live pricing. See [`docs/BOM_OFFERS.md`](docs/BOM_OFFERS.md). |
 
 Example client config (Claude Desktop or any MCP client supporting streamable HTTP):
 
@@ -111,7 +111,7 @@ All under `/v1`, all JSON:
 | `GET /v1/search?q=&limit=` | FTS5 search (`bad_request` on empty query) |
 | `GET /v1/symbols/:lib/:name` | Full symbol with extends resolved (404 if missing) |
 | `GET /v1/compatible?pins=&fp_pattern=&query=&limit=` | Pin+footprint filter (`bad_request` if no filter) |
-| `GET /v1/part-offer-query?symbol_id=&value=&package=&market=` | Distributor-search procurement hint for a catalog symbol; use `lib=&name=` instead of `symbol_id=` if preferred |
+| `GET /v1/part-offer-query?symbol_id=&value=&package=&market=` | Distributor-search procurement hint for a catalog symbol; use `lib=&name=` instead of `symbol_id=` if preferred. See [`docs/BOM_OFFERS.md`](docs/BOM_OFFERS.md). |
 
 Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "message": "..."}}`.
 
@@ -139,6 +139,20 @@ configuration/secrets, health checks, external MCP smoke test, and rollback
 procedure are in [`docs/deployment.md`](docs/deployment.md).
 
 Tracing: `RUST_LOG=tokito_mcp_server=debug,tower_http=debug cargo run ...`.
+
+## CI
+
+Pull requests and pushes to `main` run (`.github/workflows/ci.yml`):
+
+| Job | What it checks |
+|-----|----------------|
+| `package + advertised version` | Workspace version matches README/Docker tag via `scripts/check-version.py` |
+| `cargo fmt` | Rust formatting |
+| `cargo clippy` | Lint clean (`RUSTFLAGS=-D warnings`) |
+| `cargo test` | Unit + integration tests (incl. `part_offer_query` REST/MCP tests) |
+| `Docker health + MCP smoke` | Build image, wait for health, run `scripts/protocol-smoke.sh` (initialize, tools/list, **part_offer_query**) |
+
+Release tags additionally publish the container image (`.github/workflows/release.yml`).
 
 ## Artifact format
 

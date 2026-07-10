@@ -85,3 +85,32 @@ if not required <= names:
     raise SystemExit(f"tools/list missing: {sorted(required - names)}")
 print(f"tools/list ok: {len(names)} tools")
 PY
+
+curl --fail --silent --show-error --max-time 15 \
+    --output "$TMP/part_offer" \
+    --request POST "$ENDPOINT" \
+    --header "content-type: application/json" \
+    --header "accept: application/json, text/event-stream" \
+    --header "mcp-session-id: $session_id" \
+    --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"part_offer_query","arguments":{"symbol_id":"Device:R","value":"330","package":"R_0603","market":"IN"}}}'
+
+python3 - "$TMP/part_offer" <<'PY'
+import json
+import pathlib
+import sys
+
+lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+payload = next((line[6:] for line in lines if line.startswith("data: {")), None)
+if payload is None:
+    raise SystemExit("part_offer_query response contained no JSON SSE event")
+message = json.loads(payload)
+if "error" in message:
+    raise SystemExit(f"part_offer_query error: {message['error']}")
+inner = json.loads(message["result"]["content"][0]["text"])
+if inner.get("procurement_query") != "330 resistor, 0603 package":
+    raise SystemExit(f"unexpected procurement_query: {inner.get('procurement_query')!r}")
+domains = inner.get("distributor_domains") or []
+if "digikey.in" not in domains:
+    raise SystemExit(f"expected digikey.in in distributor_domains: {domains}")
+print("part_offer_query ok")
+PY
