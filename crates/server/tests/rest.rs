@@ -1,4 +1,4 @@
-//! REST face — exercise every endpoint through the assembled router via
+﻿//! REST face â€” exercise every endpoint through the assembled router via
 //! tower::ServiceExt::oneshot. No port binding, no async tasks beyond the
 //! single request future.
 
@@ -28,7 +28,7 @@ async fn request_json(uri: &str) -> (StatusCode, Value) {
     let status = resp.status();
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&body)
-        .unwrap_or_else(|_| panic!("non-JSON body for {uri}: {:?}", &body));
+        .unwrap_or_else(|_| panic!("non-JSON body for {uri}: {:?}", body));
     (status, json)
 }
 
