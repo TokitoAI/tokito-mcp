@@ -1,4 +1,4 @@
-//! REST /v1/compatible — capability search.
+﻿//! REST /v1/compatible â€” capability search.
 
 use axum::{
     body::Body,
@@ -25,7 +25,7 @@ async fn request_json(uri: &str) -> (StatusCode, Value) {
         .unwrap();
     let status = resp.status();
     let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body)
+    let json: Value = serde_json::from_slice(body)
         .unwrap_or_else(|_| panic!("non-JSON body for {uri}: {:?}", body));
     (status, json)
 }
@@ -70,7 +70,7 @@ async fn combines_pins_and_query() {
 #[tokio::test]
 async fn fp_pattern_underscore_is_literal_not_wildcard() {
     // `_` is a LIKE single-char wildcard; escaped, it must match a literal
-    // underscore. Only the resistor's fp_filters ("R_*") contains one — an
+    // underscore. Only the resistor's fp_filters ("R_*") contains one â€” an
     // unescaped `%_%` would match every symbol with a non-empty footprint field.
     let (status, v) = request_json("/v1/compatible?fp_pattern=_").await;
     assert_eq!(status, StatusCode::OK);
