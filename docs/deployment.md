@@ -22,7 +22,7 @@ On the VPS, keep the deployment in `/opt/tokito-mcp`:
 Copy `deploy/production/compose.yml` and `.env.example`, then set:
 
 - `TOKITO_MCP_IMAGE`: an exact release tag such as
-  `ghcr.io/tokitoai/tokito-mcp:v0.1.2`. Do not deploy `latest`.
+  `ghcr.io/tokitoai/tokito-mcp:v0.1.3`. Do not deploy `latest`.
 - `TOKITO_MCP_ALLOWED_HOSTS`: the public Host values the server accepts, such
   as `mcp.tokito.dev`.
 - `CLOUDFLARED_IMAGE`: the operator-approved cloudflared version **and digest**,
@@ -75,7 +75,7 @@ From a machine outside the VPS/network, verify DNS, edge TLS, REST health, MCP
 initialization, the advertised server version, and the tool catalog:
 
 ```bash
-TOKITO_MCP_EXPECTED_VERSION=0.1.2 \
+TOKITO_MCP_EXPECTED_VERSION=0.1.3 \
   bash scripts/protocol-smoke.sh https://mcp.tokito.dev/mcp
 ```
 
