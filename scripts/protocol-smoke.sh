@@ -80,7 +80,10 @@ if payload is None:
     raise SystemExit("tools/list response contained no JSON SSE event")
 message = json.loads(payload)
 names = {tool["name"] for tool in message["result"]["tools"]}
-required = {"search_symbols", "get_symbol", "list_libraries", "find_compatible", "part_offer_query"}
+required = {
+    "search_symbols", "get_symbol", "list_libraries", "find_compatible",
+    "part_offer_query", "resolve_by_mpn", "get_symbol_provenance",
+}
 if not required <= names:
     raise SystemExit(f"tools/list missing: {sorted(required - names)}")
 print(f"tools/list ok: {len(names)} tools")
@@ -113,4 +116,56 @@ domains = inner.get("distributor_domains") or []
 if "digikey.in" not in domains:
     raise SystemExit(f"expected digikey.in in distributor_domains: {domains}")
 print("part_offer_query ok")
+PY
+
+curl --fail --silent --show-error --max-time 15 \
+    --output "$TMP/generated" \
+    --request POST "$ENDPOINT" \
+    --header "content-type: application/json" \
+    --header "accept: application/json, text/event-stream" \
+    --header "mcp-session-id: $session_id" \
+    --data '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"resolve_by_mpn","arguments":{"manufacturer":"Tokito deploy smoke","mpn":"NOT-A-REAL-PART","package":"NONE"}}}'
+
+python3 - "$TMP/generated" <<'PY'
+import json
+import pathlib
+import sys
+
+lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+payload = next((line[6:] for line in lines if line.startswith("data: {")), None)
+if payload is None:
+    raise SystemExit("resolve_by_mpn response contained no JSON SSE event")
+message = json.loads(payload)
+if "error" in message:
+    raise SystemExit(f"resolve_by_mpn error: {message['error']}")
+inner = json.loads(message["result"]["content"][0]["text"])
+if inner.get("status") != "not_found":
+    raise SystemExit(f"expected generated-symbol not_found sentinel: {inner}")
+print("resolve_by_mpn ok")
+PY
+
+curl --fail --silent --show-error --max-time 15 \
+    --output "$TMP/provenance" \
+    --request POST "$ENDPOINT" \
+    --header "content-type: application/json" \
+    --header "accept: application/json, text/event-stream" \
+    --header "mcp-session-id: $session_id" \
+    --data '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_symbol_provenance","arguments":{"revision_id":"gen_sha256_not_real"}}}'
+
+python3 - "$TMP/provenance" <<'PY'
+import json
+import pathlib
+import sys
+
+lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+payload = next((line[6:] for line in lines if line.startswith("data: {")), None)
+if payload is None:
+    raise SystemExit("get_symbol_provenance response contained no JSON SSE event")
+message = json.loads(payload)
+if "error" in message:
+    raise SystemExit(f"get_symbol_provenance error: {message['error']}")
+inner = json.loads(message["result"]["content"][0]["text"])
+if inner.get("status") != "not_found":
+    raise SystemExit(f"expected provenance not_found sentinel: {inner}")
+print("get_symbol_provenance ok")
 PY

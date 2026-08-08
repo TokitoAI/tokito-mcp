@@ -23,15 +23,18 @@ crates/
   pack/      # CLI: walk kicad-symbols → emit symbols.sqlite + manifest.json + build.log
 ```
 
-The server is read-only. `pack` is the only writer.
+The server always opens catalogs read-only. Release images contain the
+immutable official catalog; production may additionally mount the ingestion
+service's generated catalog with `TOKITO_MCP_GENERATED_DB`. MCP never accepts
+writes.
 
 ## Quick start
 
 ### Docker
 
 ```bash
-docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.2
-docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.2
+docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.3
+docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.3
 curl http://localhost:8090/v1/health
 ```
 
@@ -67,7 +70,7 @@ Production endpoint: `https://mcp.tokito.dev/mcp` (streamable HTTP JSON-RPC,
 `mcp-session-id` header). A local server exposes the same route at
 `http://127.0.0.1:8090/mcp`.
 
-Five tools:
+Seven tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -76,6 +79,8 @@ Five tools:
 | `list_libraries` | Enumerate the ~220 libraries in the artifact |
 | `find_compatible` | Pin-count and footprint-pattern filter (`{pins, fp_pattern, query?, limit?}`) |
 | `part_offer_query` | Build a distributor-search procurement hint for a catalog symbol (`{symbol_id?, lib?, name?, value?, package?, market?}`); does not return live pricing. See [`docs/BOM_OFFERS.md`](docs/BOM_OFFERS.md). |
+| `resolve_by_mpn` | Resolve an exact manufacturer + MPN + package identity to its currently published generated symbol. |
+| `get_symbol_provenance` | Fetch the DS-ViRe evidence and pipeline provenance for a generated symbol or exact revision. |
 
 Example client config (Claude Desktop or any MCP client supporting streamable HTTP):
 
@@ -112,6 +117,8 @@ All under `/v1`, all JSON:
 | `GET /v1/symbols/:lib/:name` | Full symbol with extends resolved (404 if missing) |
 | `GET /v1/compatible?pins=&fp_pattern=&query=&limit=` | Pin+footprint filter (`bad_request` if no filter) |
 | `GET /v1/part-offer-query?symbol_id=&value=&package=&market=` | Distributor-search procurement hint for a catalog symbol; use `lib=&name=` instead of `symbol_id=` if preferred. See [`docs/BOM_OFFERS.md`](docs/BOM_OFFERS.md). |
+| `GET /v1/generated/resolve?manufacturer=&mpn=&package=` | Exact generated-symbol identity resolve. |
+| `GET /v1/generated/provenance?lib=&name=` | Provenance for a published generated symbol. |
 
 Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "message": "..."}}`.
 
@@ -122,6 +129,7 @@ Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "messag
 | Flag | Env | Default | Purpose |
 |------|-----|---------|---------|
 | `--db` | `TOKITO_MCP_DB` | _(required)_ | Path to `symbols.sqlite` |
+| `--generated-db` | `TOKITO_MCP_GENERATED_DB` | _(none)_ | Optional live generated-symbol SQLite catalog, opened read-only. Exact generated resolve, provenance, generated-library lookup, and search route here without an MCP restart. |
 | `--addr` | `TOKITO_MCP_ADDR` | `127.0.0.1:8090` | Bind address |
 | `--cache` | `TOKITO_MCP_CACHE` | `2048` | Per-process resolved-symbol LRU capacity |
 | `--allowed-hosts` | `TOKITO_MCP_ALLOWED_HOSTS` | _(loopback only)_ | Comma-separated `Host` authorities allowed on `/mcp` (DNS-rebinding guard). Public deployments set their real host(s), e.g. `mcp.tokito.dev,mcp.tokito.dev:9443`. Empty keeps the safe loopback default. |
@@ -149,16 +157,18 @@ Pull requests and pushes to `main` run (`.github/workflows/ci.yml`):
 | `package + advertised version` | Workspace version matches README/Docker tag via `scripts/check-version.py` |
 | `cargo fmt` | Rust formatting |
 | `cargo clippy` | Lint clean (`RUSTFLAGS=-D warnings`) |
-| `cargo test` | Unit + integration tests (incl. `part_offer_query` REST/MCP tests) |
-| `Docker health + MCP smoke` | Build image, wait for health, run `scripts/protocol-smoke.sh` (initialize, tools/list, **part_offer_query**) |
+| `cargo test` | Unit + integration tests (including generated-symbol REST/MCP and offline-sync tests) |
+| `Docker health + MCP smoke` | Build image, wait for health, run `scripts/protocol-smoke.sh` (initialize, full tools/list, procurement call, generated-symbol sentinel calls) |
 
 Release tags additionally publish the container image (`.github/workflows/release.yml`).
 
 ## Artifact format
 
-`symbols.sqlite` is a self-contained SQLite database baked into the hosted
-server image. Tokito Desktop consumes the catalog through MCP and does not open
-this artifact directly. Schema lives in
+`symbols.sqlite` is the immutable official catalog baked into the hosted
+server image. A separately mounted `generated.sqlite` can provide live,
+published ingestion revisions at runtime; both use the same schema and are
+opened with SQLite `query_only`. Tokito Desktop consumes catalogs through the
+hosted MCP and does not open either artifact directly. Schema lives in
 [`crates/symbols/src/schema.sql`](crates/symbols/src/schema.sql). Symbol bodies
 (pins, graphics, fp_filters) are stored as compact
 [postcard](https://crates.io/crates/postcard) blobs decoded lazily; an FTS5
@@ -173,7 +183,7 @@ Alongside `symbols.sqlite`, `pack` writes:
 
 - The resolver caches fully-resolved (extends-merged) symbols in a `moka` LRU. The default `--cache 2048` covers the working set for typical agent workloads.
 - FTS5 search is single-digit ms on the bundled artifact; `find_compatible` filters scale linearly in matches but cap at `limit`.
-- The server is single-process, single-DB, no auth — bind it to localhost or put it behind a reverse proxy if you need either.
+- The server is single-process with independent mutexes for the official and optional generated catalogs. Production is exposed only through the configured Cloudflare edge at `mcp.tokito.dev`.
 
 ## Source data
 

@@ -1,0 +1,10 @@
+# Production override when Tokito Cloud ingestion owns a live generated catalog.
+# The host directory must already contain a schema-compatible generated.sqlite.
+services:
+  server:
+    environment:
+      TOKITO_MCP_GENERATED_DB: /data/generated/generated.sqlite
+    volumes:
+      # Kept writable for SQLite WAL shared-memory coordination. The MCP
+      # process itself opens the database READ_ONLY and enables query_only.
+      - ${TOKITO_GENERATED_DATA_DIR:?set TOKITO_GENERATED_DATA_DIR}:/data/generated

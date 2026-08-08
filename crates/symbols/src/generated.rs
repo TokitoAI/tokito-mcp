@@ -15,6 +15,13 @@ use crate::{
     Error, Result, BODY_FORMAT_POSTCARD_V1,
 };
 
+/// Upper bounds enforced while importing an ingestion database. They are
+/// deliberately above normal generated symbols but low enough that a corrupt
+/// or hostile source cannot make the offline packer allocate without bound.
+const MAX_GENERATED_BODY_BYTES: usize = 4 * 1024 * 1024;
+const MAX_PROVENANCE_BYTES: usize = 256 * 1024;
+const MAX_TEXT_BYTES: usize = 512 * 1024;
+
 /// Resolve the currently-published generated symbol for a normalized part
 /// identity. Returns `Ok(None)` when the part is unknown or has no published
 /// revision (draft, quarantined, or superseded state).
@@ -196,11 +203,19 @@ pub fn sync_from(target: &Connection, source_db: &std::path::Path) -> Result<usi
     let rows = stmt.query_map([], SourceRow::from_row)?;
     for row in rows {
         let row = row?;
-        let part = PartId {
-            manufacturer_norm: row.manufacturer_norm,
-            mpn: row.mpn,
-            package: row.package,
-        };
+        row.validate()?;
+        let part = PartId::new(&row.manufacturer_norm, &row.mpn, &row.package).map_err(|e| {
+            invalid_source_row(&row.revision_id, format!("invalid part identity: {e}"))
+        })?;
+        if part.manufacturer_norm != row.manufacturer_norm {
+            return Err(invalid_source_row(
+                &row.revision_id,
+                "manufacturer_norm is not canonical".to_string(),
+            ));
+        }
+        let existed = target
+            .prepare_cached("SELECT 1 FROM generated_symbol WHERE revision_id = ?1")?
+            .exists(params![row.revision_id])?;
         insert_revision(
             target,
             NewRevision {
@@ -214,8 +229,8 @@ pub fn sync_from(target: &Connection, source_db: &std::path::Path) -> Result<usi
                 fp_filters: &row.fp_filters,
                 datasheet: &row.datasheet,
                 footprint: &row.footprint,
-                pin_count: row.pin_count,
-                flags: row.flags,
+                pin_count: row.pin_count as u16,
+                flags: row.flags as u32,
                 body: &row.body,
                 body_format: &row.body_format,
                 provenance_json: &row.provenance_json,
@@ -231,7 +246,9 @@ pub fn sync_from(target: &Connection, source_db: &std::path::Path) -> Result<usi
                 published_at: &row.published_at,
             },
         )?;
-        count += 1;
+        if !existed {
+            count += 1;
+        }
     }
     Ok(count)
 }
@@ -249,8 +266,8 @@ struct SourceRow {
     fp_filters: String,
     datasheet: String,
     footprint: String,
-    pin_count: u16,
-    flags: u32,
+    pin_count: i64,
+    flags: i64,
     body: Vec<u8>,
     body_format: String,
     provenance_json: String,
@@ -274,8 +291,8 @@ impl SourceRow {
             fp_filters: r.get(9)?,
             datasheet: r.get(10)?,
             footprint: r.get(11)?,
-            pin_count: r.get::<_, i64>(12)? as u16,
-            flags: r.get::<_, i64>(13)? as u32,
+            pin_count: r.get(12)?,
+            flags: r.get(13)?,
             body: r.get(14)?,
             body_format: r.get(15)?,
             provenance_json: r.get(16)?,
@@ -283,6 +300,87 @@ impl SourceRow {
             content_hash: r.get(18)?,
             published_at: r.get(19)?,
         })
+    }
+
+    fn validate(&self) -> Result<()> {
+        let fail = |message: String| Err(invalid_source_row(&self.revision_id, message));
+        if !self.revision_id.starts_with("gen_sha256_") || self.revision_id.len() > 256 {
+            return fail("revision_id must use the gen_sha256_ namespace".into());
+        }
+        if !self.lib.starts_with("generated:") || self.lib.len() > 256 {
+            return fail("library id must use the generated: namespace".into());
+        }
+        if self.name.trim().is_empty() || self.name.len() > 512 {
+            return fail("symbol name is empty or too long".into());
+        }
+        if !(0..=u16::MAX as i64).contains(&self.pin_count) {
+            return fail(format!("pin_count {} is outside u16 range", self.pin_count));
+        }
+        if !(0..=u32::MAX as i64).contains(&self.flags) {
+            return fail(format!("flags {} is outside u32 range", self.flags));
+        }
+        if self.body.len() > MAX_GENERATED_BODY_BYTES {
+            return fail(format!(
+                "body is {} bytes; limit is {MAX_GENERATED_BODY_BYTES}",
+                self.body.len()
+            ));
+        }
+        if self.body_format != BODY_FORMAT_POSTCARD_V1 {
+            return fail(format!("unsupported body format {:?}", self.body_format));
+        }
+        let body: SymbolBody = postcard::from_bytes(&self.body)
+            .map_err(|e| invalid_source_row(&self.revision_id, format!("body decode: {e}")))?;
+        if body.pins.len() != self.pin_count as usize {
+            return fail(format!(
+                "pin_count {} does not match decoded body pin count {}",
+                self.pin_count,
+                body.pins.len()
+            ));
+        }
+        if self.provenance_json.len() > MAX_PROVENANCE_BYTES {
+            return fail(format!(
+                "provenance is {} bytes; limit is {MAX_PROVENANCE_BYTES}",
+                self.provenance_json.len()
+            ));
+        }
+        let provenance: serde_json::Value = serde_json::from_str(&self.provenance_json)
+            .map_err(|e| invalid_source_row(&self.revision_id, format!("provenance JSON: {e}")))?;
+        if !provenance.is_object() {
+            return fail("provenance JSON must be an object".into());
+        }
+        let text_bytes = self.manufacturer_norm.len()
+            + self.mpn.len()
+            + self.package.len()
+            + self.lib.len()
+            + self.name.len()
+            + self.ref_des.len()
+            + self.description.len()
+            + self.keywords.len()
+            + self.fp_filters.len()
+            + self.datasheet.len()
+            + self.footprint.len();
+        if text_bytes > MAX_TEXT_BYTES {
+            return fail(format!(
+                "text fields total {text_bytes} bytes; limit is {MAX_TEXT_BYTES}"
+            ));
+        }
+        if !self.content_hash.starts_with("sha256:") || self.content_hash.len() > 128 {
+            return fail("content_hash must use the sha256: namespace".into());
+        }
+        if PublicationStatus::from_str(&self.status).is_none() {
+            return fail(format!("unknown publication status {:?}", self.status));
+        }
+        if !self.published_at.ends_with('Z') || !self.published_at.contains('T') {
+            return fail("published_at must be an ISO-8601 UTC timestamp".into());
+        }
+        Ok(())
+    }
+}
+
+fn invalid_source_row(revision_id: &str, message: String) -> Error {
+    Error::GeneratedRevisionInvalid {
+        revision_id: revision_id.to_string(),
+        message,
     }
 }
 

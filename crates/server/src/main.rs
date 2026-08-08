@@ -14,6 +14,12 @@ struct Args {
     #[arg(long, env = "TOKITO_MCP_DB")]
     db: PathBuf,
 
+    /// Optional live generated-symbol database, opened read-only. Ingestion
+    /// owns writes; setting this avoids baking new revisions into every MCP
+    /// image release.
+    #[arg(long, env = "TOKITO_MCP_GENERATED_DB")]
+    generated_db: Option<PathBuf>,
+
     /// Bind address.
     #[arg(long, default_value = "127.0.0.1:8090", env = "TOKITO_MCP_ADDR")]
     addr: String,
@@ -49,9 +55,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    tracing::info!(?args.db, addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
+    tracing::info!(?args.db, ?args.generated_db, addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
 
-    let state = AppState::open(&args.db, args.cache)?;
+    let state = AppState::open_with_generated(&args.db, args.generated_db.as_deref(), args.cache)?;
     tracing::info!(
         commit = %state.manifest.source_commit,
         symbols = state.manifest.symbol_count,

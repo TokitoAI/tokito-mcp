@@ -80,10 +80,7 @@ fn sync_from_is_idempotent_when_run_twice() {
     let first = generated::sync_from(&target, &source_path).unwrap();
     let second = generated::sync_from(&target, &source_path).unwrap();
     assert_eq!(first, 1);
-    assert_eq!(
-        second, 1,
-        "sync_from re-inserts the same revision id — insert_revision is idempotent"
-    );
+    assert_eq!(second, 0, "second sync writes no new revision rows");
 
     let count: i64 = target
         .query_row("SELECT COUNT(*) FROM generated_symbol", [], |r| r.get(0))
@@ -249,6 +246,40 @@ fn sync_from_errors_when_source_file_missing() {
         matches!(err, tokito_symbols::Error::Sql(_)),
         "expected sqlite open error, got {err:?}"
     );
+}
+
+#[test]
+fn sync_from_rejects_pin_count_that_disagrees_with_body() {
+    let (_dir, source_path, _part) = source_db_with_one_published("TPS5430DDAR", 8);
+    let source = Connection::open(&source_path).unwrap();
+    source
+        .execute("UPDATE generated_symbol SET pin_count = 7", [])
+        .unwrap();
+    drop(source);
+
+    let target = common::fixture_db();
+    let err = generated::sync_from(&target, &source_path).unwrap_err();
+    assert!(
+        matches!(err, tokito_symbols::Error::GeneratedRevisionInvalid { .. }),
+        "expected validation failure, got {err:?}"
+    );
+}
+
+#[test]
+fn sync_from_rejects_non_generated_library_namespace() {
+    let (_dir, source_path, _part) = source_db_with_one_published("TPS5430DDAR", 8);
+    let source = Connection::open(&source_path).unwrap();
+    source
+        .execute(
+            "UPDATE lib SET name = 'Device' WHERE name LIKE 'generated:%'",
+            [],
+        )
+        .unwrap();
+    drop(source);
+
+    let target = common::fixture_db();
+    let err = generated::sync_from(&target, &source_path).unwrap_err();
+    assert!(format!("{err}").contains("generated: namespace"));
 }
 
 #[test]

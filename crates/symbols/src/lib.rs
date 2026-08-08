@@ -55,6 +55,11 @@ pub enum Error {
     UnknownBodyFormat(String),
     #[error("revision {revision_id:?} already exists with a different body — revision ids are immutable")]
     RevisionBodyMismatch { revision_id: String },
+    #[error("generated revision {revision_id:?} is invalid: {message}")]
+    GeneratedRevisionInvalid {
+        revision_id: String,
+        message: String,
+    },
 }
 
 impl Error {

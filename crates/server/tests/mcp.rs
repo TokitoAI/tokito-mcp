@@ -90,7 +90,7 @@ async fn initialize_returns_server_info_and_session() {
 }
 
 #[tokio::test]
-async fn initialize_handshake_returns_three_tools() {
+async fn initialize_handshake_returns_complete_tool_catalog() {
     let sid = initialize_session().await;
 
     // Send the "initialized" notification (no-op for our test, but valid)
@@ -106,7 +106,7 @@ async fn initialize_handshake_returns_three_tools() {
     // since the session is local to that app instance, both calls in the same
     // process work as long as the same app survives.
     //
-    // Simplest: assert tools/list returns 3 tools by running it on a fresh
+    // Assert tools/list returns the full catalog by running it on a fresh
     // session (the request itself carries the session id we just opened).
     let app = build_app(common::fixture_app_state());
 
@@ -170,6 +170,9 @@ async fn initialize_handshake_returns_three_tools() {
     assert!(names.contains(&"list_libraries"));
     assert!(names.contains(&"find_compatible"));
     assert!(names.contains(&"part_offer_query"));
+    assert!(names.contains(&"resolve_by_mpn"));
+    assert!(names.contains(&"get_symbol_provenance"));
+    assert_eq!(names.len(), 7);
 }
 
 async fn call_tool(app: &axum::Router, sid: &str, id: i64, name: &str, args: Value) -> Value {

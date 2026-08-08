@@ -10,12 +10,18 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 use serde::Serialize;
+use std::collections::HashSet;
+use tokito_symbols::model::{Source, SymbolRef};
 
 use crate::error::AppError;
 
 #[derive(Clone)]
 pub struct AppState {
     pub conn: Arc<Mutex<Connection>>,
+    /// Optional live generated-symbol catalog. In production the ingestion
+    /// service owns this file and MCP opens it read-only; ordinary catalog
+    /// queries continue to use the immutable release artifact in `conn`.
+    pub generated_conn: Option<Arc<Mutex<Connection>>>,
     pub resolver: tokito_symbols::resolver::Resolver,
     pub manifest: Arc<Manifest>,
 }
@@ -33,13 +39,91 @@ pub struct Manifest {
 
 impl AppState {
     pub fn open(db_path: &Path, cache_capacity: u64) -> Result<Self, AppError> {
+        Self::open_with_generated(db_path, None, cache_capacity)
+    }
+
+    pub fn open_with_generated(
+        db_path: &Path,
+        generated_db_path: Option<&Path>,
+        cache_capacity: u64,
+    ) -> Result<Self, AppError> {
         let conn = tokito_symbols::db::open_read_only(db_path)?;
+        let generated_conn = generated_db_path
+            .map(tokito_symbols::db::open_read_only)
+            .transpose()?
+            .map(|connection| Arc::new(Mutex::new(connection)));
         let manifest = load_manifest(&conn);
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            generated_conn,
             resolver: tokito_symbols::resolver::Resolver::new(cache_capacity),
             manifest: Arc::new(manifest),
         })
+    }
+
+    /// Select the live generated catalog when configured. This keeps the
+    /// public server read-only while allowing committed ingestion revisions to
+    /// become visible without rebuilding or restarting the MCP image.
+    pub fn generated_connection(&self) -> Arc<Mutex<Connection>> {
+        self.generated_conn
+            .clone()
+            .unwrap_or_else(|| self.conn.clone())
+    }
+
+    pub fn connection_for_lib(&self, lib: &str) -> Arc<Mutex<Connection>> {
+        if lib.starts_with(tokito_symbols::resolver::GENERATED_LIB_PREFIX) {
+            self.generated_connection()
+        } else {
+            self.conn.clone()
+        }
+    }
+
+    /// Search the immutable catalog plus the live generated catalog, when one
+    /// is configured. Generated rows in the baked catalog are ignored in that
+    /// mode so superseded runtime data cannot leak through stale image state.
+    pub fn search_catalogs(
+        &self,
+        query: &str,
+        limit: u32,
+        lib_filter: Option<&str>,
+    ) -> tokito_symbols::Result<Vec<SymbolRef>> {
+        let mut items = {
+            let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+            tokito_symbols::search::search(
+                &conn,
+                tokito_symbols::search::SearchOpts {
+                    query,
+                    limit,
+                    lib_filter,
+                },
+            )?
+        };
+
+        if let Some(generated_conn) = &self.generated_conn {
+            items.retain(|item| item.source == Source::Official);
+            let conn = generated_conn.lock().unwrap_or_else(|p| p.into_inner());
+            let mut generated = tokito_symbols::search::search(
+                &conn,
+                tokito_symbols::search::SearchOpts {
+                    query,
+                    limit,
+                    lib_filter,
+                },
+            )?;
+            generated.retain(|item| item.source == Source::Generated);
+            items.extend(generated);
+        }
+
+        items.sort_by(|a, b| {
+            a.score
+                .total_cmp(&b.score)
+                .then_with(|| a.lib.cmp(&b.lib))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        let mut seen = HashSet::new();
+        items.retain(|item| seen.insert((item.lib.clone(), item.name.clone())));
+        items.truncate(limit as usize);
+        Ok(items)
     }
 }
 
