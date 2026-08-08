@@ -170,6 +170,136 @@ pub fn insert_revision<'a>(conn: &Connection, r: NewRevision<'a>) -> Result<i64>
     Ok(conn.last_insert_rowid())
 }
 
+/// Copy every generated-symbol revision from a source `symbols.sqlite`
+/// artifact into the target connection. Used by `tokito-mcp-pack --generated`
+/// to merge tokito-ai's `generated.sqlite` (populated by the ingestion
+/// service, Wave C.1) into the served catalog.
+///
+/// Idempotent per revision id: rows already present with matching bodies
+/// are skipped; rows with the same id but a different body abort with
+/// [`Error::RevisionBodyMismatch`] so a broken merge fails loudly instead
+/// of silently forking the revision history.
+///
+/// Returns the number of revisions actually written.
+pub fn sync_from(target: &Connection, source_db: &std::path::Path) -> Result<usize> {
+    // Read-only open. We deliberately do NOT ATTACH the source into the target:
+    // ATTACH would let a compromised source file join into writable statements
+    // on the target. Pulling rows one at a time and reusing insert_revision
+    // means every write goes through the same idempotency + validation gates.
+    let src = Connection::open_with_flags(
+        source_db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+
+    let mut count = 0usize;
+    let mut stmt = src.prepare(SQL_SELECT_ALL_FROM_SOURCE)?;
+    let rows = stmt.query_map([], SourceRow::from_row)?;
+    for row in rows {
+        let row = row?;
+        let part = PartId {
+            manufacturer_norm: row.manufacturer_norm,
+            mpn: row.mpn,
+            package: row.package,
+        };
+        insert_revision(
+            target,
+            NewRevision {
+                revision_id: &row.revision_id,
+                part: &part,
+                lib: &row.lib,
+                name: &row.name,
+                ref_des: &row.ref_des,
+                description: &row.description,
+                keywords: &row.keywords,
+                fp_filters: &row.fp_filters,
+                datasheet: &row.datasheet,
+                footprint: &row.footprint,
+                pin_count: row.pin_count,
+                flags: row.flags,
+                body: &row.body,
+                body_format: &row.body_format,
+                provenance_json: &row.provenance_json,
+                status: crate::model::PublicationStatus::from_str(&row.status).ok_or_else(
+                    || {
+                        Error::ProvenanceJson(format!(
+                            "source row {} has unknown status {:?}",
+                            row.revision_id, row.status
+                        ))
+                    },
+                )?,
+                content_hash: &row.content_hash,
+                published_at: &row.published_at,
+            },
+        )?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+struct SourceRow {
+    revision_id: String,
+    manufacturer_norm: String,
+    mpn: String,
+    package: String,
+    lib: String,
+    name: String,
+    ref_des: String,
+    description: String,
+    keywords: String,
+    fp_filters: String,
+    datasheet: String,
+    footprint: String,
+    pin_count: u16,
+    flags: u32,
+    body: Vec<u8>,
+    body_format: String,
+    provenance_json: String,
+    status: String,
+    content_hash: String,
+    published_at: String,
+}
+
+impl SourceRow {
+    fn from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            revision_id: r.get(0)?,
+            manufacturer_norm: r.get(1)?,
+            mpn: r.get(2)?,
+            package: r.get(3)?,
+            lib: r.get(4)?,
+            name: r.get(5)?,
+            ref_des: r.get(6)?,
+            description: r.get(7)?,
+            keywords: r.get(8)?,
+            fp_filters: r.get(9)?,
+            datasheet: r.get(10)?,
+            footprint: r.get(11)?,
+            pin_count: r.get::<_, i64>(12)? as u16,
+            flags: r.get::<_, i64>(13)? as u32,
+            body: r.get(14)?,
+            body_format: r.get(15)?,
+            provenance_json: r.get(16)?,
+            status: r.get(17)?,
+            content_hash: r.get(18)?,
+            published_at: r.get(19)?,
+        })
+    }
+}
+
+const SQL_SELECT_ALL_FROM_SOURCE: &str = r#"
+SELECT g.revision_id, p.manufacturer_norm, p.mpn, p.package,
+       l.name AS lib, g.name,
+       g.ref_des, g.description, g.keywords, g.fp_filters,
+       g.datasheet, g.footprint,
+       g.pin_count, g.flags,
+       g.body, g.body_format,
+       g.provenance_json, g.status, g.content_hash, g.published_at
+  FROM generated_symbol g
+  JOIN part_registry    p ON p.part_id = g.part_id
+  JOIN lib              l ON l.id      = g.lib_id
+ ORDER BY g.published_at
+"#;
+
 /// Insert-payload for a single generated-symbol revision.
 #[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]

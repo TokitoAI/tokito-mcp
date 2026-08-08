@@ -276,4 +276,20 @@ impl PublicationStatus {
             Self::Quarantined => "quarantined",
         }
     }
+
+    /// Parse the wire form used in the `generated_symbol.status` column.
+    /// Named `from_str` (associated function, not the trait) to keep the call
+    /// site obvious at read sites like `PublicationStatus::from_str(&row)`.
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(raw: &str) -> Option<Self> {
+        Some(match raw {
+            "draft" => Self::Draft,
+            "validating" => Self::Validating,
+            "verified" => Self::Verified,
+            "published" => Self::Published,
+            "superseded" => Self::Superseded,
+            "quarantined" => Self::Quarantined,
+            _ => return None,
+        })
+    }
 }
