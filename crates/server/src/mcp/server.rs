@@ -19,7 +19,7 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokito_symbols::search;
+use tokito_symbols::{generated, part_id::PartId, search};
 
 use crate::{part_offer_query, state::AppState};
 
@@ -102,6 +102,27 @@ pub struct FindCompatibleArgs {
     /// Max results to return. Defaults to 50, capped at 200.
     #[serde(default)]
     pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ResolveByMpnArgs {
+    /// Manufacturer name as printed on the datasheet, e.g. "STMicroelectronics".
+    /// Normalized server-side (NFC + lowercase + collapse whitespace) before
+    /// the DB lookup — see `tokito_symbols::part_id::PartId` for the exact
+    /// rules.
+    pub manufacturer: String,
+    /// Exact manufacturer part number, case-sensitive.
+    pub mpn: String,
+    /// Package/variant string, e.g. "LQFP100", "SO-PowerPAD-8".
+    pub package: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetSymbolProvenanceArgs {
+    /// Library id, e.g. "generated:stmicroelectronics" or "official:MCU_ST_STM32H7".
+    pub lib: String,
+    /// Symbol name (typically the MPN for generated symbols).
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -315,6 +336,68 @@ impl Tokito {
     }
 
     #[tool(
+        description = "Resolve a generated symbol by exact manufacturer + MPN + package \
+                       identity. Returns the currently-published revision as a \
+                       ResolvedSymbol when one exists, or `{ \"status\": \"not_found\" }` \
+                       if the part is unknown or has no published revision yet. \
+                       Read-only: the MCP surface never accepts writes to the \
+                       generated store."
+    )]
+    async fn resolve_by_mpn(
+        &self,
+        Parameters(args): Parameters<ResolveByMpnArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        check_len("manufacturer", &args.manufacturer, MAX_MANUFACTURER_LEN)?;
+        check_len("mpn", &args.mpn, MAX_MPN_LEN)?;
+        check_len("package", &args.package, MAX_PACKAGE_LEN)?;
+
+        let part = PartId::new(&args.manufacturer, &args.mpn, &args.package)
+            .map_err(|e| McpError::new(ErrorCode::INVALID_PARAMS, e.to_string(), None))?;
+
+        let conn = self.state.conn.clone();
+        let resolved = tokio::task::spawn_blocking(move || {
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
+            generated::resolve_by_mpn(&c, &part)
+        })
+        .await
+        .map_err(map_join)?
+        .map_err(map_sym)?;
+
+        match resolved {
+            Some(sym) => ok_json(&*sym),
+            None => ok_json(&serde_json::json!({ "status": "not_found" })),
+        }
+    }
+
+    #[tool(
+        description = "Fetch the DS-ViRe provenance record for a generated symbol — \
+                       datasheet identity, evidence region ids, extractor + compiler \
+                       + retrieval versions, publication status, and content hash. \
+                       Wire shape follows docs/CONTRACTS.md §5. Returns \
+                       `{ \"status\": \"not_found\" }` when the symbol is not in \
+                       the generated store or has no published revision."
+    )]
+    async fn get_symbol_provenance(
+        &self,
+        Parameters(args): Parameters<GetSymbolProvenanceArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        check_len("lib", &args.lib, MAX_LIB_NAME_LEN)?;
+        check_len("name", &args.name, MAX_SYMBOL_NAME_LEN)?;
+        let conn = self.state.conn.clone();
+        let prov = tokio::task::spawn_blocking(move || {
+            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
+            generated::provenance_for_symbol(&c, &args.lib, &args.name)
+        })
+        .await
+        .map_err(map_join)?
+        .map_err(map_sym)?;
+        match prov {
+            Some(v) => ok_json(&v),
+            None => ok_json(&serde_json::json!({ "status": "not_found" })),
+        }
+    }
+
+    #[tool(
         description = "List every library in the catalog with its symbol count. \
                        Useful for browsing — e.g. to pick a domain (Amplifier_Operational, \
                        MCU_*, Connector_*) before narrowing a search."
@@ -356,6 +439,9 @@ const MAX_QUERY_LEN: usize = 256;
 const MAX_LIB_NAME_LEN: usize = 64;
 const MAX_SYMBOL_NAME_LEN: usize = 128;
 const MAX_FP_PATTERN_LEN: usize = 64;
+const MAX_MANUFACTURER_LEN: usize = 128;
+const MAX_MPN_LEN: usize = 96;
+const MAX_PACKAGE_LEN: usize = 64;
 
 fn check_len(field: &str, value: &str, max: usize) -> Result<(), McpError> {
     if value.len() > max {

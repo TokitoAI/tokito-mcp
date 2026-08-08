@@ -231,4 +231,49 @@ pub struct SymbolRef {
     pub pin_count: u16,
     /// BM25 score from FTS5, lower = better.
     pub score: f32,
+    /// Which catalog this row came from — `official` for the CERN-derived
+    /// upstream tree, `generated` for a published DS-ViRe generated symbol.
+    ///
+    /// Defaulted for backwards compatibility with clients still deserializing
+    /// v1 responses; on the wire the field is always emitted.
+    #[serde(default)]
+    pub source: Source,
+}
+
+/// Provenance of a search-result row. Also emitted on the `ResolvedSymbol`
+/// wire shape via a companion field when the resolver knows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    #[default]
+    Official,
+    Generated,
+}
+
+/// Publication lifecycle for a generated symbol revision. Wire values are the
+/// snake_case names (`draft`, `validating`, `verified`, `published`,
+/// `superseded`, `quarantined`), matching docs/CONTRACTS.md §4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationStatus {
+    Draft,
+    Validating,
+    Verified,
+    Published,
+    Superseded,
+    Quarantined,
+}
+
+impl PublicationStatus {
+    /// Wire form used in the `generated_symbol.status` column and in JSON.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Validating => "validating",
+            Self::Verified => "verified",
+            Self::Published => "published",
+            Self::Superseded => "superseded",
+            Self::Quarantined => "quarantined",
+        }
+    }
 }

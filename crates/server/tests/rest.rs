@@ -54,7 +54,7 @@ async fn manifest_reports_fixture_counts() {
     let (status, v) = request_json("/v1/manifest").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["source_commit"], "test-fixture");
-    assert_eq!(v["schema_version"], 1);
+    assert_eq!(v["schema_version"], 2);
     assert_eq!(v["symbol_count"], 3);
     assert_eq!(v["lib_count"], 2);
 }

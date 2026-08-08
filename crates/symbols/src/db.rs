@@ -39,7 +39,7 @@ fn check_schema_version(conn: &Connection) -> Result<()> {
         )?
         .parse()
         .unwrap_or(0);
-    if v < MIN_COMPATIBLE_VERSION || v > CURRENT_SCHEMA_VERSION {
+    if !(MIN_COMPATIBLE_VERSION..=CURRENT_SCHEMA_VERSION).contains(&v) {
         return Err(Error::SchemaVersionMismatch {
             artifact: v,
             min: MIN_COMPATIBLE_VERSION,

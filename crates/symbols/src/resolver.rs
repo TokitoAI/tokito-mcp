@@ -18,6 +18,11 @@ use crate::{
     Error, Result, BODY_FORMAT_POSTCARD_V1, MAX_EXTENDS_DEPTH,
 };
 
+/// Library-name prefix that routes lookups to the generated-symbol store.
+/// Kept here (not in `generated.rs`) so the resolver-level dispatch stays
+/// adjacent to the code that uses it.
+pub const GENERATED_LIB_PREFIX: &str = "generated:";
+
 /// Caches resolved symbols by `symbol.id`. Cheap to clone (`Arc` inside).
 #[derive(Clone)]
 pub struct Resolver {
@@ -32,7 +37,18 @@ impl Resolver {
     }
 
     /// Materialise a symbol by `(lib, name)`. Borrows `&Connection` short.
+    ///
+    /// Libraries whose name is prefixed with `generated:` route to the
+    /// generated-symbol store instead of walking the extends chain.
     pub fn resolve(&self, conn: &Connection, lib: &str, name: &str) -> Result<Arc<ResolvedSymbol>> {
+        if lib.starts_with(GENERATED_LIB_PREFIX) {
+            return crate::generated::resolve_current_by_lib_name(conn, lib, name)?.ok_or_else(
+                || Error::SymbolNotFound {
+                    lib: lib.into(),
+                    name: name.into(),
+                },
+            );
+        }
         let id = lookup_id(conn, lib, name)?;
         self.resolve_by_id(conn, id)
     }

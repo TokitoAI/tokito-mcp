@@ -1,8 +1,17 @@
 //! FTS5-backed keyword search and structured capability search over the catalog.
+//!
+//! Search results union the two catalog tables — the CERN-derived `symbol`
+//! table (source = `official`) and the `generated_symbol` table (source =
+//! `generated`, restricted to `status = 'published'`). BM25 scores are
+//! comparable across the two mirrors because both FTS5 indexes use the same
+//! tokenizer and column layout.
 
 use rusqlite::Connection;
 
-use crate::{model::SymbolRef, Result};
+use crate::{
+    model::{Source, SymbolRef},
+    Result,
+};
 
 pub struct SearchOpts<'a> {
     pub query: &'a str,
@@ -44,6 +53,21 @@ pub fn search(conn: &Connection, opts: SearchOpts<'_>) -> Result<Vec<SymbolRef>>
 }
 
 fn row_to_ref(r: &rusqlite::Row<'_>) -> rusqlite::Result<SymbolRef> {
+    let source_raw: String = r.get(7)?;
+    let source = match source_raw.as_str() {
+        "official" => Source::Official,
+        "generated" => Source::Generated,
+        // Column is emitted as a hard-coded literal in every SELECT branch, so
+        // an unknown value would be a schema regression, not user input.
+        // Surface as a SQL type error rather than silently defaulting.
+        other => {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                7,
+                rusqlite::types::Type::Text,
+                format!("unknown source marker {other:?}").into(),
+            ));
+        }
+    };
     Ok(SymbolRef {
         lib: r.get(0)?,
         name: r.get(1)?,
@@ -52,41 +76,64 @@ fn row_to_ref(r: &rusqlite::Row<'_>) -> rusqlite::Result<SymbolRef> {
         keywords: r.get(4)?,
         pin_count: r.get::<_, i64>(5)? as u16,
         score: r.get::<_, f64>(6)? as f32,
+        source,
     })
 }
 
+// The two branches are unioned then re-ordered/limited outside so BM25 scores
+// stay comparable and we don't emit `LIMIT` twice with different arg indices.
 const SQL_ANY_LIB: &str = r#"
-SELECT l.name, s.name, s.ref_des, s.description, s.keywords,
-       s.pin_count, bm25(symbol_fts) AS score
-  FROM symbol_fts
-  JOIN symbol s ON s.id = symbol_fts.rowid
-  JOIN lib    l ON l.id = s.lib_id
- WHERE symbol_fts MATCH ?1
- ORDER BY score
- LIMIT ?2
+SELECT lib, name, ref_des, description, keywords, pin_count, score, source FROM (
+    SELECT l.name AS lib, s.name AS name, s.ref_des, s.description, s.keywords,
+           s.pin_count, bm25(symbol_fts) AS score, 'official' AS source
+      FROM symbol_fts
+      JOIN symbol s ON s.id = symbol_fts.rowid
+      JOIN lib    l ON l.id = s.lib_id
+     WHERE symbol_fts MATCH ?1
+    UNION ALL
+    SELECT l.name AS lib, g.name AS name, g.ref_des, g.description, g.keywords,
+           g.pin_count, bm25(generated_symbol_fts) AS score, 'generated' AS source
+      FROM generated_symbol_fts
+      JOIN generated_symbol g ON g.id = generated_symbol_fts.rowid
+      JOIN lib             l ON l.id = g.lib_id
+     WHERE generated_symbol_fts MATCH ?1 AND g.status = 'published'
+) ORDER BY score LIMIT ?2
 "#;
 
 const SQL_WITH_LIB: &str = r#"
-SELECT l.name, s.name, s.ref_des, s.description, s.keywords,
-       s.pin_count, bm25(symbol_fts) AS score
-  FROM symbol_fts
-  JOIN symbol s ON s.id = symbol_fts.rowid
-  JOIN lib    l ON l.id = s.lib_id
- WHERE symbol_fts MATCH ?1 AND l.name = ?2
- ORDER BY score
- LIMIT ?3
+SELECT lib, name, ref_des, description, keywords, pin_count, score, source FROM (
+    SELECT l.name AS lib, s.name AS name, s.ref_des, s.description, s.keywords,
+           s.pin_count, bm25(symbol_fts) AS score, 'official' AS source
+      FROM symbol_fts
+      JOIN symbol s ON s.id = symbol_fts.rowid
+      JOIN lib    l ON l.id = s.lib_id
+     WHERE symbol_fts MATCH ?1 AND l.name = ?2
+    UNION ALL
+    SELECT l.name AS lib, g.name AS name, g.ref_des, g.description, g.keywords,
+           g.pin_count, bm25(generated_symbol_fts) AS score, 'generated' AS source
+      FROM generated_symbol_fts
+      JOIN generated_symbol g ON g.id = generated_symbol_fts.rowid
+      JOIN lib             l ON l.id = g.lib_id
+     WHERE generated_symbol_fts MATCH ?1 AND l.name = ?2 AND g.status = 'published'
+) ORDER BY score LIMIT ?3
 "#;
 
 pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Vec<SymbolRef>> {
     // Bind parameters in a stable order regardless of which filters are set.
+    //
+    // find_compatible today searches only the CERN-derived `symbol` catalog;
+    // widening to include `generated_symbol` is tracked separately (pin_count
+    // + fp_pattern filters need to apply symmetrically to both, and the
+    // dynamic-SQL builder is easier to grow after Wave B.2 stabilizes).
+    // The `'official'` literal keeps `row_to_ref`'s source column contract.
     let mut sql =
         String::from("SELECT l.name, s.name, s.ref_des, s.description, s.keywords, s.pin_count, ");
     if opts.query.is_some() {
-        sql.push_str("bm25(symbol_fts) AS score FROM symbol_fts ");
+        sql.push_str("bm25(symbol_fts) AS score, 'official' AS source FROM symbol_fts ");
         sql.push_str("JOIN symbol s ON s.id = symbol_fts.rowid ");
         sql.push_str("JOIN lib l ON l.id = s.lib_id WHERE symbol_fts MATCH ?1 ");
     } else {
-        sql.push_str("0.0 AS score FROM symbol s ");
+        sql.push_str("0.0 AS score, 'official' AS source FROM symbol s ");
         sql.push_str("JOIN lib l ON l.id = s.lib_id WHERE 1=1 ");
     }
 

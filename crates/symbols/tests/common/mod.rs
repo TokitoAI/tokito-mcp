@@ -3,10 +3,12 @@
 
 use rusqlite::{params, Connection};
 use tokito_symbols::{
+    generated,
     model::{
-        Fill, Graphic, GraphicKind, Pin, PinElectrical, PinStyle, Point, Stroke, StrokeKind,
-        SymbolBody, SymbolFlags, Unit,
+        Fill, Graphic, GraphicKind, Pin, PinElectrical, PinStyle, Point, PublicationStatus, Stroke,
+        StrokeKind, SymbolBody, SymbolFlags, Unit,
     },
+    part_id::PartId,
     BODY_FORMAT_POSTCARD_V1, CURRENT_SCHEMA_VERSION, SCHEMA_SQL,
 };
 
@@ -159,6 +161,88 @@ pub fn fixture_db() -> Connection {
     .unwrap();
 
     conn
+}
+
+/// Insert a published generated-symbol revision into the fixture DB.
+///
+/// Uses the crate's own `generated::insert_revision` so the code path is the
+/// same as what the packer will exercise. Returns the `PartId` used so callers
+/// can round-trip lookups.
+#[allow(dead_code)]
+pub fn insert_generated_fixture(
+    conn: &Connection,
+    manufacturer: &str,
+    mpn: &str,
+    package: &str,
+    lib: &str,
+    name: &str,
+    body: &SymbolBody,
+) -> PartId {
+    let part = PartId::new(manufacturer, mpn, package).unwrap();
+    let body_bytes = postcard::to_stdvec(body).unwrap();
+    let revision_id = format!("gen_sha256_{}", blake3_hex(&body_bytes));
+    let content_hash = format!("sha256:{}", sha256_hex(&body_bytes));
+    let provenance = serde_json::json!({
+        "revision_id": revision_id,
+        "part_id": {
+            "manufacturer_norm": part.manufacturer_norm,
+            "mpn": part.mpn,
+            "package": part.package,
+        },
+        "library_id": { "lib": lib, "name": name },
+        "evidence": {
+            "datasheet_id": "fixture-datasheet",
+            "content_sha256": "0".repeat(64),
+            "region_ids": ["r_pinout_01", "r_pin_table_01"],
+        },
+        "pipeline": {
+            "extractor_version": "fixture@0",
+            "compiler_version": "fixture@0",
+            "layout_policy_version": "fixture@0",
+            "extractor_model": "fixture",
+            "dsvire_index_version": "fixture@0",
+            "dsvire_model_ids": ["fixture"],
+        },
+        "status": "published",
+        "published_at": "2026-08-08T07:15:00Z",
+        "content_hash": content_hash,
+    });
+    generated::insert_revision(
+        conn,
+        generated::NewRevision {
+            revision_id: &revision_id,
+            part: &part,
+            lib,
+            name,
+            ref_des: "U",
+            description: "fixture generated symbol",
+            keywords: "fixture generated",
+            fp_filters: "",
+            datasheet: "https://example.test/ds.pdf",
+            footprint: "",
+            pin_count: body.pins.len() as u16,
+            flags: 0,
+            body: &body_bytes,
+            body_format: BODY_FORMAT_POSTCARD_V1,
+            provenance_json: &provenance.to_string(),
+            status: PublicationStatus::Published,
+            content_hash: &content_hash,
+            published_at: "2026-08-08T07:15:00Z",
+        },
+    )
+    .unwrap();
+    part
+}
+
+fn blake3_hex(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    format!("{:x}", h.finalize())
 }
 
 #[allow(clippy::too_many_arguments)]

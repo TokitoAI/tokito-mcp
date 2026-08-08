@@ -42,9 +42,14 @@ anyhow = "1"
 
 # Hashing + checksums
 blake3 = "1"
+sha2 = "0.10"
 
 # Caching
 moka = { version = "0.12", features = ["sync"] }
+
+# Unicode normalization — used by tokito-symbols::part_id to build the
+# canonical manufacturer key for the generated-symbol lookup.
+unicode-normalization = "0.1"
 
 # Packer-only
 clap = { version = "4", features = ["derive", "env"] }

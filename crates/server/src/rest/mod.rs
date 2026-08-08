@@ -4,6 +4,7 @@ use axum::{routing::get, Router};
 
 use crate::state::AppState;
 
+mod generated;
 mod meta;
 mod search;
 mod symbols;
@@ -18,4 +19,9 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/compatible", get(search::find_compatible))
         .route("/v1/part-offer-query", get(search::part_offer_query))
         .route("/v1/symbols/:lib/:name", get(symbols::get_symbol))
+        .route("/v1/generated/resolve", get(generated::resolve_by_mpn))
+        .route(
+            "/v1/generated/:lib/:name/provenance",
+            get(generated::get_symbol_provenance),
+        )
 }

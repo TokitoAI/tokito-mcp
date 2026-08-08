@@ -6,14 +6,17 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{params, Connection};
 use tokito_mcp_server::state::{AppState, Manifest};
 use tokito_symbols::{
+    generated,
     model::{
-        Fill, Graphic, GraphicKind, Pin, PinElectrical, PinStyle, Point, Stroke, StrokeKind,
-        SymbolBody, SymbolFlags, Unit,
+        Fill, Graphic, GraphicKind, Pin, PinElectrical, PinStyle, Point, PublicationStatus, Stroke,
+        StrokeKind, SymbolBody, SymbolFlags, Unit,
     },
+    part_id::PartId,
     resolver::Resolver,
     BODY_FORMAT_POSTCARD_V1, CURRENT_SCHEMA_VERSION, SCHEMA_SQL,
 };
 
+#[allow(dead_code)]
 pub fn fixture_app_state() -> AppState {
     let conn = build_fixture_conn();
     let manifest = Manifest {
@@ -22,6 +25,112 @@ pub fn fixture_app_state() -> AppState {
         schema_version: CURRENT_SCHEMA_VERSION,
         symbol_count: 3,
         lib_count: 2,
+        generated_at: None,
+    };
+    AppState {
+        conn: Arc::new(Mutex::new(conn)),
+        resolver: Resolver::new(64),
+        manifest: Arc::new(manifest),
+    }
+}
+
+/// Same as [`fixture_app_state`] but with one published generated symbol
+/// seeded so tests can exercise the resolve_by_mpn + provenance surfaces.
+///
+/// Seeded row:
+///   * manufacturer "Texas Instruments" → normalized "texas instruments"
+///   * mpn "TPS5430DDAR" (case-sensitive)
+///   * package "SO-PowerPAD-8"
+///   * lib "generated:texas_instruments"
+///   * name "TPS5430DDAR" (matches MPN)
+///   * status "published"
+#[allow(dead_code)]
+pub fn fixture_app_state_with_generated() -> AppState {
+    let conn = build_fixture_conn();
+    let body = SymbolBody {
+        pins: (1..=8)
+            .map(|n| Pin {
+                number: n.to_string(),
+                name: format!("P{n}"),
+                electrical: PinElectrical::Passive,
+                style: PinStyle::Line,
+                x: 0,
+                y: n * 100,
+                rotation: 0,
+                length: 100,
+                unit: 1,
+                body_style: 1,
+            })
+            .collect(),
+        graphics: vec![],
+        units: vec![Unit {
+            unit: 1,
+            body_style: 1,
+        }],
+        props_layout: vec![],
+        flags: SymbolFlags::default(),
+    };
+    let body_bytes = postcard::to_stdvec(&body).unwrap();
+    let part = PartId::new("Texas Instruments", "TPS5430DDAR", "SO-PowerPAD-8").unwrap();
+    let revision_id = "gen_sha256_fixture_tps5430ddar";
+    let provenance = serde_json::json!({
+        "revision_id": revision_id,
+        "part_id": {
+            "manufacturer_norm": part.manufacturer_norm,
+            "mpn": part.mpn,
+            "package": part.package,
+        },
+        "library_id": {
+            "lib": "generated:texas_instruments",
+            "name": "TPS5430DDAR",
+        },
+        "evidence": {
+            "datasheet_id": "ti-slvs632l",
+            "content_sha256": "83074fc1265c8e5c6639511bdb9f83e96c6e6f993613deadea0d09c3a12a2c07",
+            "region_ids": ["r_pinout_01", "r_pin_table_01"],
+        },
+        "pipeline": {
+            "extractor_version": "fixture@0",
+            "compiler_version": "fixture@0",
+            "layout_policy_version": "fixture@0",
+            "extractor_model": "fixture",
+            "dsvire_index_version": "fixture@0",
+            "dsvire_model_ids": ["fixture"],
+        },
+        "status": "published",
+        "published_at": "2026-08-08T07:15:00Z",
+        "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    });
+    generated::insert_revision(
+        &conn,
+        generated::NewRevision {
+            revision_id,
+            part: &part,
+            lib: "generated:texas_instruments",
+            name: "TPS5430DDAR",
+            ref_des: "U",
+            description: "TI TPS5430 3A step-down converter (fixture)",
+            keywords: "buck regulator switching tps5430",
+            fp_filters: "SOIC*",
+            datasheet: "https://www.ti.com/lit/ds/symlink/tps5430.pdf",
+            footprint: "",
+            pin_count: 8,
+            flags: 0,
+            body: &body_bytes,
+            body_format: BODY_FORMAT_POSTCARD_V1,
+            provenance_json: &provenance.to_string(),
+            status: PublicationStatus::Published,
+            content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            published_at: "2026-08-08T07:15:00Z",
+        },
+    )
+    .unwrap();
+    let manifest = Manifest {
+        source_commit: "test-fixture-with-generated".into(),
+        generator_version: "0.0.0".into(),
+        schema_version: CURRENT_SCHEMA_VERSION,
+        symbol_count: 4,
+        lib_count: 3,
         generated_at: None,
     };
     AppState {
