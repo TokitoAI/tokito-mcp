@@ -30,8 +30,8 @@ The server is read-only. `pack` is the only writer.
 ### Docker
 
 ```bash
-docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.2
-docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.2
+docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.3
+docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.3
 curl http://localhost:8090/v1/health
 ```
 
