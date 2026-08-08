@@ -4,6 +4,8 @@
 //!   - `get_symbol(lib, name)`
 //!   - `find_compatible(pins?, fp_pattern?, query?, lib?, limit?)`
 //!   - `part_offer_query(symbol_id?, lib?, name?, value?, package?, market?)`
+//!   - `resolve_by_mpn(manufacturer, mpn, package)`
+//!   - `get_symbol_provenance(revision_id? | lib + name)`
 //!   - `list_libraries()`
 //!
 //! Tool handlers run heavy SQL inside `spawn_blocking` so the tokio runtime
@@ -120,9 +122,15 @@ pub struct ResolveByMpnArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetSymbolProvenanceArgs {
     /// Library id, e.g. "generated:stmicroelectronics" or "official:MCU_ST_STM32H7".
-    pub lib: String,
+    #[serde(default)]
+    pub lib: Option<String>,
     /// Symbol name (typically the MPN for generated symbols).
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Exact immutable generated revision id. Use this instead of `(lib,
+    /// name)` when validating a just-published ingestion response.
+    #[serde(default)]
+    pub revision_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -184,18 +192,10 @@ impl Tokito {
             check_len("lib", lib, MAX_LIB_NAME_LEN)?;
         }
         let limit = args.limit.unwrap_or(20).clamp(1, 200);
-        let conn = self.state.conn.clone();
+        let state = self.state.clone();
         let query = args.query.clone();
         let items = tokio::task::spawn_blocking(move || {
-            let c = conn.lock().unwrap_or_else(|p| p.into_inner());
-            search::search(
-                &c,
-                search::SearchOpts {
-                    query: &args.query,
-                    limit,
-                    lib_filter: args.lib.as_deref(),
-                },
-            )
+            state.search_catalogs(&args.query, limit, args.lib.as_deref())
         })
         .await
         .map_err(map_join)?
@@ -222,7 +222,7 @@ impl Tokito {
     ) -> Result<CallToolResult, McpError> {
         check_len("lib", &args.lib, MAX_LIB_NAME_LEN)?;
         check_len("name", &args.name, MAX_SYMBOL_NAME_LEN)?;
-        let conn = self.state.conn.clone();
+        let conn = self.state.connection_for_lib(&args.lib);
         let resolver = self.state.resolver.clone();
         let resolved = tokio::task::spawn_blocking(move || {
             let c = conn.lock().unwrap_or_else(|p| p.into_inner());
@@ -316,7 +316,7 @@ impl Tokito {
         }
 
         let symbol_id = part_offer_query::symbol_id(&lib, &name);
-        let conn = self.state.conn.clone();
+        let conn = self.state.connection_for_lib(&lib);
         let resolver = self.state.resolver.clone();
         let resolved = tokio::task::spawn_blocking(move || {
             let c = conn.lock().unwrap_or_else(|p| p.into_inner());
@@ -354,7 +354,7 @@ impl Tokito {
         let part = PartId::new(&args.manufacturer, &args.mpn, &args.package)
             .map_err(|e| McpError::new(ErrorCode::INVALID_PARAMS, e.to_string(), None))?;
 
-        let conn = self.state.conn.clone();
+        let conn = self.state.generated_connection();
         let resolved = tokio::task::spawn_blocking(move || {
             let c = conn.lock().unwrap_or_else(|p| p.into_inner());
             generated::resolve_by_mpn(&c, &part)
@@ -381,12 +381,53 @@ impl Tokito {
         &self,
         Parameters(args): Parameters<GetSymbolProvenanceArgs>,
     ) -> Result<CallToolResult, McpError> {
-        check_len("lib", &args.lib, MAX_LIB_NAME_LEN)?;
-        check_len("name", &args.name, MAX_SYMBOL_NAME_LEN)?;
-        let conn = self.state.conn.clone();
+        let revision_id = args
+            .revision_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        let lib = args
+            .lib
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        let name = args
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        let has_symbol_key = lib.is_some() || name.is_some();
+        if revision_id.is_some() == has_symbol_key || lib.is_some() != name.is_some() {
+            return Err(McpError::new(
+                ErrorCode::INVALID_PARAMS,
+                "provide either `revision_id` or both `lib` and `name`".to_string(),
+                None,
+            ));
+        }
+        if let Some(value) = revision_id.as_deref() {
+            check_len("revision_id", value, MAX_REVISION_ID_LEN)?;
+        }
+        if let Some(value) = lib.as_deref() {
+            check_len("lib", value, MAX_LIB_NAME_LEN)?;
+        }
+        if let Some(value) = name.as_deref() {
+            check_len("name", value, MAX_SYMBOL_NAME_LEN)?;
+        }
+        let conn = self.state.generated_connection();
         let prov = tokio::task::spawn_blocking(move || {
             let c = conn.lock().unwrap_or_else(|p| p.into_inner());
-            generated::provenance_for_symbol(&c, &args.lib, &args.name)
+            if let Some(revision_id) = revision_id.as_deref() {
+                generated::provenance_for_revision(&c, revision_id)
+            } else {
+                generated::provenance_for_symbol(
+                    &c,
+                    lib.as_deref().expect("validated lib"),
+                    name.as_deref().expect("validated name"),
+                )
+            }
         })
         .await
         .map_err(map_join)?
@@ -442,6 +483,7 @@ const MAX_FP_PATTERN_LEN: usize = 64;
 const MAX_MANUFACTURER_LEN: usize = 128;
 const MAX_MPN_LEN: usize = 96;
 const MAX_PACKAGE_LEN: usize = 64;
+const MAX_REVISION_ID_LEN: usize = 256;
 
 fn check_len(field: &str, value: &str, max: usize) -> Result<(), McpError> {
     if value.len() > max {

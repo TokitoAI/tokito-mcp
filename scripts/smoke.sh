@@ -198,13 +198,13 @@ curl -s -o /dev/null -X POST "$URL/mcp" \
     -H "mcp-session-id: $SID" \
     -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 
-check "MCP tools/list returns 5 tools" bash -c '
+check "MCP tools/list returns 7 tools" bash -c '
     SID=$(cat /tmp/smoke_sid)
     post_mcp "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}" "$SID"
     [[ "$STATUS" == "200" ]] || { echo "status $STATUS"; exit 1; }
     mcp_data
-    jq_eq ".result.tools | length" "5"
-    jq -e ".result.tools | map(.name) | contains([\"search_symbols\",\"get_symbol\",\"list_libraries\",\"find_compatible\",\"part_offer_query\"])" /tmp/smoke_resp >/dev/null
+    jq_eq ".result.tools | length" "7"
+    jq -e ".result.tools | map(.name) | contains([\"search_symbols\",\"get_symbol\",\"list_libraries\",\"find_compatible\",\"part_offer_query\",\"resolve_by_mpn\",\"get_symbol_provenance\"])" /tmp/smoke_resp >/dev/null
 '
 
 check "MCP tools/call search_symbols returns opamp hits" bash -c '

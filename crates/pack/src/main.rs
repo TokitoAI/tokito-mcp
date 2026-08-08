@@ -209,6 +209,9 @@ fn run_generated_sync(db: &std::path::Path, source: &std::path::Path) -> anyhow:
     let t = Instant::now();
     let mut conn = rusqlite::Connection::open(db)?;
     conn.pragma_update(None, "foreign_keys", true)?;
+    // Release artifacts from before generated-symbol support remain valid
+    // official catalogs. Install the additive tables/triggers before merging.
+    conn.execute_batch(tokito_symbols::SCHEMA_SQL)?;
     let tx = conn.transaction()?;
     let count = tokito_symbols::generated::sync_from(&tx, source)?;
     tx.commit()?;

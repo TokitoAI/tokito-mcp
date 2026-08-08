@@ -61,7 +61,7 @@ pub async fn resolve_by_mpn(
     let part = PartId::new(&q.manufacturer, &q.mpn, &q.package)
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let conn = s.conn.clone();
+    let conn = s.generated_connection();
     let resolved = tokio::task::spawn_blocking(move || {
         let c = conn.lock().unwrap_or_else(|p| p.into_inner());
         generated::resolve_by_mpn(&c, &part)
@@ -84,7 +84,7 @@ pub async fn get_symbol_provenance(
     check_len("lib", &lib, MAX_LIB_NAME_LEN)?;
     check_len("name", &name, MAX_SYMBOL_NAME_LEN)?;
 
-    let conn = s.conn.clone();
+    let conn = s.generated_connection();
     let prov = tokio::task::spawn_blocking(move || {
         let c = conn.lock().unwrap_or_else(|p| p.into_inner());
         generated::provenance_for_symbol(&c, &lib, &name)

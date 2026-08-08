@@ -26,7 +26,7 @@ pub async fn get_symbol(
             "`name` exceeds {MAX_SYMBOL_NAME_LEN} bytes"
         )));
     }
-    let conn = s.conn.clone();
+    let conn = s.connection_for_lib(&lib);
     let resolver = s.resolver.clone();
     let resolved = tokio::task::spawn_blocking(move || {
         let c = conn.lock().unwrap_or_else(|p| p.into_inner());

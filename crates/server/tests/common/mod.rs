@@ -29,6 +29,7 @@ pub fn fixture_app_state() -> AppState {
     };
     AppState {
         conn: Arc::new(Mutex::new(conn)),
+        generated_conn: None,
         resolver: Resolver::new(64),
         manifest: Arc::new(manifest),
     }
@@ -47,6 +48,7 @@ pub fn fixture_app_state() -> AppState {
 #[allow(dead_code)]
 pub fn fixture_app_state_with_generated() -> AppState {
     let conn = build_fixture_conn();
+    let generated_conn = build_fixture_conn();
     let body = SymbolBody {
         pins: (1..=8)
             .map(|n| Pin {
@@ -102,7 +104,7 @@ pub fn fixture_app_state_with_generated() -> AppState {
         "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     });
     generated::insert_revision(
-        &conn,
+        &generated_conn,
         generated::NewRevision {
             revision_id,
             part: &part,
@@ -135,6 +137,7 @@ pub fn fixture_app_state_with_generated() -> AppState {
     };
     AppState {
         conn: Arc::new(Mutex::new(conn)),
+        generated_conn: Some(Arc::new(Mutex::new(generated_conn))),
         resolver: Resolver::new(64),
         manifest: Arc::new(manifest),
     }

@@ -191,6 +191,42 @@ async fn get_symbol_provenance_tool_returns_expected_shape() {
 }
 
 #[tokio::test]
+async fn get_symbol_provenance_accepts_exact_revision_id() {
+    let app = app_with_generated();
+    let sid = open_session_on(&app).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "get_symbol_provenance",
+        json!({"revision_id": "gen_sha256_fixture_tps5430ddar"}),
+    )
+    .await;
+    let inner = call_tool_payload(&msg);
+    assert_eq!(inner["part_id"]["mpn"], "TPS5430DDAR");
+    assert_eq!(inner["status"], "published");
+}
+
+#[tokio::test]
+async fn get_symbol_provenance_rejects_ambiguous_identity() {
+    let app = app_with_generated();
+    let sid = open_session_on(&app).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "get_symbol_provenance",
+        json!({
+            "revision_id": "gen_sha256_fixture_tps5430ddar",
+            "lib": "generated:texas_instruments",
+            "name": "TPS5430DDAR"
+        }),
+    )
+    .await;
+    assert!(msg.get("error").is_some(), "expected invalid params: {msg}");
+}
+
+#[tokio::test]
 async fn get_symbol_provenance_tool_returns_not_found_sentinel() {
     let app = app_with_generated();
     let sid = open_session_on(&app).await;

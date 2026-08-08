@@ -56,19 +56,10 @@ pub async fn search(
     let limit = p.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let query = p.q.clone();
 
-    let conn = s.conn.clone();
-    let items: Vec<SymbolRef> = tokio::task::spawn_blocking(move || {
-        let c = conn.lock().unwrap_or_else(|p| p.into_inner());
-        search::search(
-            &c,
-            search::SearchOpts {
-                query: &p.q,
-                limit,
-                lib_filter: p.lib.as_deref(),
-            },
-        )
-    })
-    .await??;
+    let state = s.clone();
+    let items: Vec<SymbolRef> =
+        tokio::task::spawn_blocking(move || state.search_catalogs(&p.q, limit, p.lib.as_deref()))
+            .await??;
 
     Ok(Json(SearchResponse {
         query,
