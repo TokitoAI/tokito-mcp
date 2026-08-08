@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       TOKITO_MCP_ADDR: 0.0.0.0:8090
-      TOKITO_MCP_ALLOWED_HOSTS: mcp.tokito.dev
+      TOKITO_MCP_ALLOWED_HOSTS: ${TOKITO_MCP_ALLOWED_HOSTS:?set TOKITO_MCP_ALLOWED_HOSTS}
       TOKITO_MCP_MAX_SESSIONS: ${TOKITO_MCP_MAX_SESSIONS:-256}
       RUST_LOG: ${RUST_LOG:-tokito_mcp_server=info,tower_http=info}
     expose:
