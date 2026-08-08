@@ -283,7 +283,10 @@ fn generated_subcommand_merges_source_into_served_artifact() {
     let count: i64 = merged
         .query_row("SELECT COUNT(*) FROM generated_symbol", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 1, "one generated revision should be present post-merge");
+    assert_eq!(
+        count, 1,
+        "one generated revision should be present post-merge"
+    );
 
     let resolved = generated::resolve_by_mpn(&merged, &part)
         .unwrap()
@@ -317,9 +320,7 @@ fn generated_subcommand_fails_when_target_missing() {
     let tmp = tempfile::tempdir().unwrap();
     let source = tmp.path().join("generated.sqlite");
     let src_conn = rusqlite::Connection::open(&source).unwrap();
-    src_conn
-        .execute_batch(tokito_symbols::SCHEMA_SQL)
-        .unwrap();
+    src_conn.execute_batch(tokito_symbols::SCHEMA_SQL).unwrap();
     drop(src_conn);
 
     let missing_target = tmp.path().join("does_not_exist.sqlite");

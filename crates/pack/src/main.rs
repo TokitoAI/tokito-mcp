@@ -204,9 +204,7 @@ fn run_generated_sync(db: &std::path::Path, source: &std::path::Path) -> anyhow:
         anyhow::bail!("source generated.sqlite {source:?} does not exist");
     }
     if !db.exists() {
-        anyhow::bail!(
-            "target symbols.sqlite {db:?} does not exist; run the top-level pack first"
-        );
+        anyhow::bail!("target symbols.sqlite {db:?} does not exist; run the top-level pack first");
     }
     let t = Instant::now();
     let mut conn = rusqlite::Connection::open(db)?;

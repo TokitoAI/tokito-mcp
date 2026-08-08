@@ -203,9 +203,7 @@ fn sync_from_rejects_unknown_status_string() {
     // Bypass the CHECK constraint on `status` by rewriting the column value
     // through sqlite_master. This mirrors a source built against a future
     // schema that admits new status strings we haven't taught this build yet.
-    source
-        .pragma_update(None, "writable_schema", true)
-        .unwrap();
+    source.pragma_update(None, "writable_schema", true).unwrap();
     source
         .execute(
             "UPDATE sqlite_master SET sql = replace(sql, \
@@ -242,8 +240,11 @@ fn sync_from_rejects_unknown_status_string() {
 #[test]
 fn sync_from_errors_when_source_file_missing() {
     let target = common::fixture_db();
-    let err = generated::sync_from(&target, std::path::Path::new("/nonexistent/generated.sqlite"))
-        .unwrap_err();
+    let err = generated::sync_from(
+        &target,
+        std::path::Path::new("/nonexistent/generated.sqlite"),
+    )
+    .unwrap_err();
     assert!(
         matches!(err, tokito_symbols::Error::Sql(_)),
         "expected sqlite open error, got {err:?}"
@@ -283,6 +284,10 @@ fn sync_from_preserves_source_ordering_stability() {
     let merged = generated::sync_from(&target, &source_path).unwrap();
     assert_eq!(merged, 2);
 
-    assert!(generated::resolve_by_mpn(&target, &part_a).unwrap().is_some());
-    assert!(generated::resolve_by_mpn(&target, &part_b).unwrap().is_some());
+    assert!(generated::resolve_by_mpn(&target, &part_a)
+        .unwrap()
+        .is_some());
+    assert!(generated::resolve_by_mpn(&target, &part_b)
+        .unwrap()
+        .is_some());
 }
