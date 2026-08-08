@@ -11,8 +11,8 @@ version = "0.1.2"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
-repository = "https://github.com/VtronTokito/tokito-mcp"
-homepage = "https://github.com/VtronTokito/tokito-mcp"
+repository = "https://github.com/TokitoAI/tokito-mcp"
+homepage = "https://github.com/TokitoAI/tokito-mcp"
 
 [workspace.dependencies]
 # Shared crate

@@ -77,4 +77,4 @@ CI runs the protocol smoke inside the Docker job (`.github/workflows/ci.yml`).
 - Server logic: [`crates/server/src/part_offer_query.rs`](../crates/server/src/part_offer_query.rs)
 - MCP handler: [`crates/server/src/mcp/server.rs`](../crates/server/src/mcp/server.rs)
 - REST route: `GET /v1/part-offer-query` in [`crates/server/src/rest/search.rs`](../crates/server/src/rest/search.rs)
-- Client decode/validation: [`tokito-catalog` `mcp_client.rs`](https://github.com/VtronTokito/tokito-catalog/blob/master/src/mcp_client.rs)
+- Client decode/validation: [`tokito-catalog` `mcp_client.rs`](https://github.com/TokitoAI/tokito-catalog/blob/master/src/mcp_client.rs)

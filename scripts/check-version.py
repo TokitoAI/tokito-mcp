@@ -74,7 +74,7 @@ def latest_release_tag() -> str | None:
 
 def check_documented_versions(expected: str) -> None:
     readme = (ROOT / "README.md").read_text()
-    image = f"ghcr.io/vtrontokito/tokito-mcp:v{expected}"
+    image = f"ghcr.io/tokitoai/tokito-mcp:v{expected}"
     if image not in readme:
         fail(f"README Docker example must advertise {image}")
 

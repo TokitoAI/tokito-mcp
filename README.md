@@ -30,8 +30,8 @@ The server is read-only. `pack` is the only writer.
 ### Docker
 
 ```bash
-docker pull ghcr.io/vtrontokito/tokito-mcp:v0.1.2
-docker run -p 8090:8090 ghcr.io/vtrontokito/tokito-mcp:v0.1.2
+docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.2
+docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.2
 curl http://localhost:8090/v1/health
 ```
 
@@ -132,7 +132,7 @@ Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "messag
 
 ## Production deployment
 
-Tagged releases publish `ghcr.io/vtrontokito/tokito-mcp:vX.Y.Z`. Production
+Tagged releases publish `ghcr.io/tokitoai/tokito-mcp:vX.Y.Z`. Production
 pulls an exact release tag on the VPS and exposes it through Cloudflare Tunnel;
 it never deploys `latest`. The checked-in Compose manifest, required
 configuration/secrets, health checks, external MCP smoke test, and rollback
