@@ -92,7 +92,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--release-tag",
-        help="tag being released; must exactly match the workspace version (for example v0.1.3)",
+        help="tag being released; must exactly match the workspace version (for example v0.1.4)",
     )
     args = parser.parse_args()
 
