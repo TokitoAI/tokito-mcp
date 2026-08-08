@@ -37,9 +37,12 @@ pub fn search(conn: &Connection, opts: SearchOpts<'_>) -> Result<Vec<SymbolRef>>
     // FTS5 expects the query already shaped — we pass it through to allow
     // boolean operators and column-scoped queries. Caller-level sanitisation
     // is a future concern (rate-limited public endpoint).
-    let sql = match opts.lib_filter {
-        Some(_) => SQL_WITH_LIB,
-        None => SQL_ANY_LIB,
+    let generated = crate::generated::search_available(conn)?;
+    let sql = match (generated, opts.lib_filter) {
+        (true, Some(_)) => SQL_WITH_LIB,
+        (true, None) => SQL_ANY_LIB,
+        (false, Some(_)) => SQL_OFFICIAL_WITH_LIB,
+        (false, None) => SQL_OFFICIAL_ANY_LIB,
     };
     let mut stmt = conn.prepare_cached(sql)?;
     let rows: Vec<SymbolRef> = if let Some(lib) = opts.lib_filter {
@@ -116,6 +119,26 @@ SELECT lib, name, ref_des, description, keywords, pin_count, score, source FROM 
       JOIN lib             l ON l.id = g.lib_id
      WHERE generated_symbol_fts MATCH ?1 AND l.name = ?2 AND g.status = 'published'
 ) ORDER BY score LIMIT ?3
+"#;
+
+const SQL_OFFICIAL_ANY_LIB: &str = r#"
+SELECT l.name AS lib, s.name, s.ref_des, s.description, s.keywords,
+       s.pin_count, bm25(symbol_fts) AS score, 'official' AS source
+  FROM symbol_fts
+  JOIN symbol s ON s.id = symbol_fts.rowid
+  JOIN lib    l ON l.id = s.lib_id
+ WHERE symbol_fts MATCH ?1
+ ORDER BY score LIMIT ?2
+"#;
+
+const SQL_OFFICIAL_WITH_LIB: &str = r#"
+SELECT l.name AS lib, s.name, s.ref_des, s.description, s.keywords,
+       s.pin_count, bm25(symbol_fts) AS score, 'official' AS source
+  FROM symbol_fts
+  JOIN symbol s ON s.id = symbol_fts.rowid
+  JOIN lib    l ON l.id = s.lib_id
+ WHERE symbol_fts MATCH ?1 AND l.name = ?2
+ ORDER BY score LIMIT ?3
 "#;
 
 pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Vec<SymbolRef>> {

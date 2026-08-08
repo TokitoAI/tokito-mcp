@@ -22,10 +22,41 @@ const MAX_GENERATED_BODY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PROVENANCE_BYTES: usize = 256 * 1024;
 const MAX_TEXT_BYTES: usize = 512 * 1024;
 
+/// Older official catalog artifacts predate the generated tables. They remain
+/// valid official catalogs; generated lookups must behave as an empty store
+/// rather than turning an unknown MPN into an internal server error.
+pub(crate) fn store_available(conn: &Connection) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'generated_symbol'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+pub(crate) fn search_available(conn: &Connection) -> Result<bool> {
+    if !store_available(conn)? {
+        return Ok(false);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'generated_symbol_fts'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 /// Resolve the currently-published generated symbol for a normalized part
 /// identity. Returns `Ok(None)` when the part is unknown or has no published
 /// revision (draft, quarantined, or superseded state).
 pub fn resolve_by_mpn(conn: &Connection, part: &PartId) -> Result<Option<Arc<ResolvedSymbol>>> {
+    if !store_available(conn)? {
+        return Ok(None);
+    }
     let row = conn
         .prepare_cached(SQL_LATEST_PUBLISHED_BY_PART)?
         .query_row(
@@ -47,6 +78,9 @@ pub fn resolve_current_by_lib_name(
     lib: &str,
     name: &str,
 ) -> Result<Option<Arc<ResolvedSymbol>>> {
+    if !store_available(conn)? {
+        return Ok(None);
+    }
     let row = conn
         .prepare_cached(SQL_LATEST_PUBLISHED_BY_LIB_NAME)?
         .query_row(params![lib, name], row_to_generated)
@@ -65,6 +99,9 @@ pub fn provenance_for_symbol(
     lib: &str,
     name: &str,
 ) -> Result<Option<serde_json::Value>> {
+    if !store_available(conn)? {
+        return Ok(None);
+    }
     let raw: Option<String> = conn
         .prepare_cached(SQL_PROVENANCE_BY_LIB_NAME)?
         .query_row(params![lib, name], |r| r.get::<_, String>(0))
@@ -82,6 +119,9 @@ pub fn provenance_for_revision(
     conn: &Connection,
     revision_id: &str,
 ) -> Result<Option<serde_json::Value>> {
+    if !store_available(conn)? {
+        return Ok(None);
+    }
     let raw: Option<String> = conn
         .prepare_cached(SQL_PROVENANCE_BY_REVISION)?
         .query_row(params![revision_id], |r| r.get::<_, String>(0))

@@ -87,6 +87,22 @@ fn resolve_by_mpn_returns_none_for_unknown_part() {
 }
 
 #[test]
+fn legacy_official_artifact_is_an_empty_generated_store() {
+    let conn = common::fixture_db();
+    conn.execute_batch(
+        "DROP TABLE generated_symbol_fts; \
+         DROP TABLE generated_symbol; \
+         DROP TABLE part_registry;",
+    )
+    .unwrap();
+    let part = PartId::new("Texas Instruments", "TPS5430DDAR", "SO-PowerPAD-8").unwrap();
+    assert!(generated::resolve_by_mpn(&conn, &part).unwrap().is_none());
+    assert!(generated::provenance_for_revision(&conn, "missing")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
 fn resolve_by_mpn_ignores_non_published_revisions() {
     // Insert a quarantined revision and assert it's not resolvable.
     let conn = common::fixture_db();

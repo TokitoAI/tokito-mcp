@@ -84,6 +84,28 @@ fn search_official_hits_carry_official_source_marker() {
 }
 
 #[test]
+fn search_legacy_official_artifact_without_generated_tables() {
+    let conn = common::fixture_db();
+    conn.execute_batch(
+        "DROP TABLE generated_symbol_fts; \
+         DROP TABLE generated_symbol; \
+         DROP TABLE part_registry;",
+    )
+    .unwrap();
+    let hits = search::search(
+        &conn,
+        SearchOpts {
+            query: "resistor",
+            limit: 10,
+            lib_filter: None,
+        },
+    )
+    .unwrap();
+    assert!(hits.iter().any(|hit| hit.name == "R"));
+    assert!(hits.iter().all(|hit| hit.source == Source::Official));
+}
+
+#[test]
 fn search_excludes_non_published_generated_revisions() {
     let conn = common::fixture_db();
     let body = tiny_body(2);
