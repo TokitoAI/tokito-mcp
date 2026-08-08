@@ -23,6 +23,8 @@ Copy `deploy/production/compose.yml` and `.env.example`, then set:
 
 - `TOKITO_MCP_IMAGE`: an exact release tag such as
   `ghcr.io/tokitoai/tokito-mcp:v0.1.2`. Do not deploy `latest`.
+- `TOKITO_MCP_ALLOWED_HOSTS`: the public Host values the server accepts, such
+  as `mcp.tokito.dev`.
 - `CLOUDFLARED_IMAGE`: the operator-approved cloudflared version **and digest**,
   for example `cloudflare/cloudflared:<version>@sha256:<digest>`.
 - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel token from Cloudflare Zero Trust. This
