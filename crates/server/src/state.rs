@@ -48,10 +48,7 @@ impl AppState {
         cache_capacity: u64,
     ) -> Result<Self, AppError> {
         let conn = tokito_symbols::db::open_read_only(db_path)?;
-        let generated_conn = generated_db_path
-            .map(tokito_symbols::db::open_read_only)
-            .transpose()?
-            .map(|connection| Arc::new(Mutex::new(connection)));
+        let generated_conn = generated_db_path.and_then(open_optional_generated_catalog);
         let manifest = load_manifest(&conn);
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -127,6 +124,19 @@ impl AppState {
     }
 }
 
+/// The live generated catalog is an optional production overlay. An ingestion
+/// rollout may create its SQLite file before publishing its schema, so a bad
+/// optional overlay must not take down the immutable catalog service.
+fn open_optional_generated_catalog(path: &Path) -> Option<Arc<Mutex<Connection>>> {
+    match tokito_symbols::db::open_read_only(path) {
+        Ok(connection) => Some(Arc::new(Mutex::new(connection))),
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "ignoring unavailable generated catalog");
+            None
+        }
+    }
+}
+
 fn load_manifest(conn: &Connection) -> Manifest {
     let mut m = Manifest::default();
     let mut stmt = match conn.prepare("SELECT key, value FROM meta") {
@@ -148,4 +158,17 @@ fn load_manifest(conn: &Connection) -> Manifest {
         }
     }
     m
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open_optional_generated_catalog;
+
+    #[test]
+    fn uninitialized_optional_generated_catalog_is_ignored() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        rusqlite::Connection::open(file.path()).unwrap();
+
+        assert!(open_optional_generated_catalog(file.path()).is_none());
+    }
 }
