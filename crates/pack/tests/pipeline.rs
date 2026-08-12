@@ -180,12 +180,8 @@ fn end_to_end_build_from_fixture_dir() {
 /// revision is resolvable via the served path.
 #[test]
 fn generated_subcommand_merges_source_into_served_artifact() {
-    use tokito_symbols::{
-        generated,
-        model::{Pin, PinElectrical, PinStyle, PublicationStatus, SymbolBody, SymbolFlags},
-        part_id::PartId,
-        BODY_FORMAT_POSTCARD_V1, SCHEMA_SQL,
-    };
+    use sha2::{Digest, Sha256};
+    use tokito_symbols::{generated, part_id::PartId};
 
     let tmp = tempfile::tempdir().unwrap();
 
@@ -214,53 +210,56 @@ fn generated_subcommand_merges_source_into_served_artifact() {
     //    would: canonical schema + one published revision.
     let source = tmp.path().join("generated.sqlite");
     let src_conn = rusqlite::Connection::open(&source).unwrap();
-    src_conn.execute_batch(SCHEMA_SQL).unwrap();
-    let body = SymbolBody {
-        pins: (1..=8u8)
-            .map(|n| Pin {
-                number: n.to_string(),
-                name: format!("P{n}"),
-                electrical: PinElectrical::Passive,
-                style: PinStyle::Line,
-                x: 0,
-                y: i32::from(n) * 100,
-                rotation: 0,
-                length: 100,
-                unit: 1,
-                body_style: 1,
-            })
-            .collect(),
-        graphics: vec![],
-        units: vec![],
-        props_layout: vec![],
-        flags: SymbolFlags::default(),
-    };
-    let body_bytes = postcard::to_stdvec(&body).unwrap();
+    src_conn
+        .execute_batch(include_str!(
+            "../../../../tokito-ai/migrations/generated_0001_init.sql"
+        ))
+        .unwrap();
+    let symbol_text = r#"(tokito_symbol_lib
+  (version 20251024)
+  (generator "tokito_cache")
+  (symbol "TPS5430DDAR"
+    (property "Reference" "U" (at 0 0 0))
+    (property "Value" "TPS5430DDAR" (at 0 0 0))
+    (property "Datasheet" "https://example.test/ds.pdf" (at 0 0 0))
+    (property "Description" "e2e generated" (at 0 0 0))
+    (property "Footprint" "Package_SO:PowerPAD-8" (at 0 0 0))
+    (property "MPN" "TPS5430DDAR" (at 0 0 0))
+    (property "Manufacturer" "Texas Instruments" (at 0 0 0))
+    (property "package" "SO-PowerPAD-8" (at 0 0 0))
+    (property "ki_keywords" "buck converter" (at 0 0 0))
+    (property "ki_fp_filters" "SO*PowerPAD*" (at 0 0 0))
+    (symbol "TPS5430DDAR_0_1"
+      (rectangle (start -2.54 3.81) (end 2.54 -3.81)
+        (stroke (width 0.254) (type default)) (fill (type background))))
+    (symbol "TPS5430DDAR_1_1"
+      (pin power_in line (at -5.08 2.54 0) (length 2.54) (name "VIN") (number "1"))
+      (pin input line (at -5.08 0 0) (length 2.54) (name "EN") (number "2"))
+      (pin passive line (at -5.08 -2.54 0) (length 2.54) (name "SS") (number "3"))
+      (pin power_in line (at 0 -6.35 90) (length 2.54) (name "GND") (number "4"))
+      (pin passive line (at 5.08 -2.54 180) (length 2.54) (name "SW") (number "5"))
+      (pin input line (at 5.08 0 180) (length 2.54) (name "VSENSE") (number "6"))
+      (pin power_in line (at 0 6.35 270) (length 2.54) (name "BOOT") (number "7"))
+      (pin power_out line (at 5.08 2.54 180) (length 2.54) (name "PH") (number "8"))))
+)
+"#;
+    let digest = hex::encode(Sha256::digest(symbol_text.as_bytes()));
+    let revision_id = format!("gen_sha256_{digest}");
+    let content_hash = format!("sha256:{digest}");
     let part = PartId::new("Texas Instruments", "TPS5430DDAR", "SO-PowerPAD-8").unwrap();
-    generated::insert_revision(
-        &src_conn,
-        generated::NewRevision {
-            revision_id: "gen_sha256_e2e",
-            part: &part,
-            lib: "generated:texas_instruments",
-            name: "TPS5430DDAR",
-            ref_des: "U",
-            description: "e2e generated",
-            keywords: "buck converter",
-            fp_filters: "SO*PowerPAD*",
-            datasheet: "https://example.test/ds.pdf",
-            footprint: "",
-            pin_count: 8,
-            flags: 0,
-            body: &body_bytes,
-            body_format: BODY_FORMAT_POSTCARD_V1,
-            provenance_json: "{}",
-            status: PublicationStatus::Published,
-            content_hash: "sha256:aa",
-            published_at: "2026-08-08T07:00:00Z",
-        },
-    )
-    .unwrap();
+    src_conn.execute(
+        r#"INSERT INTO generated_revision(revision_id, manufacturer_norm, mpn, package, lib, name,
+         reference_prefix, description, keywords, datasheet, footprint, pin_count, symbol_text,
+         content_hash, status, spec_json, evidence_json, provenance_json, idempotency_key,
+         source_hash, extractor_version, compiler_version, layout_policy_version, published_at,
+         ingested_by) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+         'published', '{}', '{}', '{"evidence":{"region_ids":["r_pinout_01"]}}', ?15,
+         ?16, 'extractor-v1', 'compiler-v1', 'layout-v1', '2026-08-08T07:00:00Z', 'fixture')"#,
+        rusqlite::params![revision_id, part.manufacturer_norm, part.mpn, part.package,
+            "generated:texas_instruments", "TPS5430DDAR", "U", "e2e generated",
+            "buck converter", "https://example.test/ds.pdf", "Package_SO:PowerPAD-8", 8,
+            symbol_text, content_hash, "idempotency-fixture", "source-fixture"],
+    ).unwrap();
     drop(src_conn);
 
     // 3. Invoke `tokito-mcp-pack generated --db ... --source ...`.
@@ -293,6 +292,14 @@ fn generated_subcommand_merges_source_into_served_artifact() {
         .expect("merged revision must resolve by MPN");
     assert_eq!(resolved.lib, "generated:texas_instruments");
     assert_eq!(resolved.body.pins.len(), 8);
+    assert_eq!(resolved.tokito_sym.as_deref(), Some(symbol_text));
+    for required in ["MPN", "Manufacturer", "package"] {
+        assert!(resolved
+            .tokito_sym
+            .as_ref()
+            .unwrap()
+            .contains(&format!("property \"{required}\"")));
+    }
 
     // 5. Re-run the subcommand — must be idempotent.
     let status = Command::new(env!("CARGO_BIN_EXE_tokito-mcp-pack"))

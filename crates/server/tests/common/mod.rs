@@ -120,6 +120,7 @@ pub fn fixture_app_state_with_generated() -> AppState {
             flags: 0,
             body: &body_bytes,
             body_format: BODY_FORMAT_POSTCARD_V1,
+            symbol_text: "",
             provenance_json: &provenance.to_string(),
             status: PublicationStatus::Published,
             content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
