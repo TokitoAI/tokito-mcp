@@ -57,8 +57,13 @@ pub fn resolve_by_mpn(conn: &Connection, part: &PartId) -> Result<Option<Arc<Res
     if !store_available(conn)? {
         return Ok(None);
     }
+    let sql = if symbol_text_available(conn)? {
+        SQL_LATEST_PUBLISHED_BY_PART
+    } else {
+        SQL_LATEST_PUBLISHED_BY_PART_LEGACY
+    };
     let row = conn
-        .prepare_cached(SQL_LATEST_PUBLISHED_BY_PART)?
+        .prepare_cached(sql)?
         .query_row(
             params![part.manufacturer_norm, part.mpn, part.package],
             row_to_generated,
@@ -81,14 +86,28 @@ pub fn resolve_current_by_lib_name(
     if !store_available(conn)? {
         return Ok(None);
     }
+    let sql = if symbol_text_available(conn)? {
+        SQL_LATEST_PUBLISHED_BY_LIB_NAME
+    } else {
+        SQL_LATEST_PUBLISHED_BY_LIB_NAME_LEGACY
+    };
     let row = conn
-        .prepare_cached(SQL_LATEST_PUBLISHED_BY_LIB_NAME)?
+        .prepare_cached(sql)?
         .query_row(params![lib, name], row_to_generated)
         .optional()?;
     match row {
         None => Ok(None),
         Some(g) => Ok(Some(Arc::new(g.into_resolved()?))),
     }
+}
+
+fn symbol_text_available(conn: &Connection) -> Result<bool> {
+    Ok(conn
+        .prepare("PRAGMA table_info(generated_symbol)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == "symbol_text"))
 }
 
 /// Fetch the provenance JSON for the currently-published revision of a
@@ -145,12 +164,14 @@ pub fn provenance_for_revision(
 /// multiple revisions.
 pub fn insert_revision<'a>(conn: &Connection, r: NewRevision<'a>) -> Result<i64> {
     // Existing revision with the same id must have byte-identical body.
-    if let Some(existing_body) = conn
-        .prepare_cached("SELECT body FROM generated_symbol WHERE revision_id = ?1")?
-        .query_row(params![r.revision_id], |row| row.get::<_, Vec<u8>>(0))
+    if let Some((existing_body, existing_symbol_text)) = conn
+        .prepare_cached("SELECT body, symbol_text FROM generated_symbol WHERE revision_id = ?1")?
+        .query_row(params![r.revision_id], |row| {
+            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
+        })
         .optional()?
     {
-        if existing_body == r.body {
+        if existing_body == r.body && existing_symbol_text == r.symbol_text {
             return conn
                 .prepare_cached("SELECT id FROM generated_symbol WHERE revision_id = ?1")?
                 .query_row(params![r.revision_id], |row| row.get::<_, i64>(0))
@@ -188,9 +209,9 @@ pub fn insert_revision<'a>(conn: &Connection, r: NewRevision<'a>) -> Result<i64>
         "INSERT INTO generated_symbol( \
              revision_id, part_id, lib_id, name, ref_des, description, keywords, \
              fp_filters, datasheet, footprint, pin_count, flags, body, body_format, \
-             provenance_json, status, content_hash, published_at \
+             symbol_text, provenance_json, status, content_hash, published_at \
          ) VALUES( \
-             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18 \
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19 \
          )",
         params![
             r.revision_id,
@@ -207,6 +228,7 @@ pub fn insert_revision<'a>(conn: &Connection, r: NewRevision<'a>) -> Result<i64>
             r.flags as i64,
             r.body,
             r.body_format,
+            r.symbol_text,
             r.provenance_json,
             r.status.as_str(),
             r.content_hash,
@@ -273,6 +295,7 @@ pub fn sync_from(target: &Connection, source_db: &std::path::Path) -> Result<usi
                 flags: row.flags as u32,
                 body: &row.body,
                 body_format: &row.body_format,
+                symbol_text: &row.symbol_text,
                 provenance_json: &row.provenance_json,
                 status: crate::model::PublicationStatus::from_str(&row.status).ok_or_else(
                     || {
@@ -310,6 +333,7 @@ struct SourceRow {
     flags: i64,
     body: Vec<u8>,
     body_format: String,
+    symbol_text: String,
     provenance_json: String,
     status: String,
     content_hash: String,
@@ -335,10 +359,11 @@ impl SourceRow {
             flags: r.get(13)?,
             body: r.get(14)?,
             body_format: r.get(15)?,
-            provenance_json: r.get(16)?,
-            status: r.get(17)?,
-            content_hash: r.get(18)?,
-            published_at: r.get(19)?,
+            symbol_text: r.get(16)?,
+            provenance_json: r.get(17)?,
+            status: r.get(18)?,
+            content_hash: r.get(19)?,
+            published_at: r.get(20)?,
         })
     }
 
@@ -430,7 +455,7 @@ SELECT g.revision_id, p.manufacturer_norm, p.mpn, p.package,
        g.ref_des, g.description, g.keywords, g.fp_filters,
        g.datasheet, g.footprint,
        g.pin_count, g.flags,
-       g.body, g.body_format,
+       g.body, g.body_format, g.symbol_text,
        g.provenance_json, g.status, g.content_hash, g.published_at
   FROM generated_symbol g
   JOIN part_registry    p ON p.part_id = g.part_id
@@ -458,6 +483,8 @@ pub struct NewRevision<'a> {
     /// here — the packer enforces size caps upstream.
     pub body: &'a [u8],
     pub body_format: &'a str,
+    /// Exact canonical `.tokito_sym` bytes produced by the compiler.
+    pub symbol_text: &'a str,
     /// Serialized provenance JSON (see docs/CONTRACTS.md §5).
     pub provenance_json: &'a str,
     pub status: PublicationStatus,
@@ -472,7 +499,23 @@ pub struct NewRevision<'a> {
 const SQL_LATEST_PUBLISHED_BY_PART: &str = r#"
 SELECT g.id, g.revision_id, g.part_id, l.name AS lib, g.name,
        g.ref_des, g.description, g.keywords, g.fp_filters,
-       g.datasheet, g.footprint, g.pin_count, g.body, g.body_format,
+       g.datasheet, g.footprint, g.pin_count, g.body, g.body_format, g.symbol_text,
+       g.provenance_json, g.status, g.content_hash, g.published_at
+  FROM generated_symbol g
+  JOIN part_registry p ON p.part_id = g.part_id
+  JOIN lib           l ON l.id       = g.lib_id
+ WHERE p.manufacturer_norm = ?1
+   AND p.mpn               = ?2
+   AND p.package           = ?3
+   AND g.status            = 'published'
+ ORDER BY g.published_at DESC
+ LIMIT 1
+"#;
+
+const SQL_LATEST_PUBLISHED_BY_PART_LEGACY: &str = r#"
+SELECT g.id, g.revision_id, g.part_id, l.name AS lib, g.name,
+       g.ref_des, g.description, g.keywords, g.fp_filters,
+       g.datasheet, g.footprint, g.pin_count, g.body, g.body_format, '' AS symbol_text,
        g.provenance_json, g.status, g.content_hash, g.published_at
   FROM generated_symbol g
   JOIN part_registry p ON p.part_id = g.part_id
@@ -488,7 +531,21 @@ SELECT g.id, g.revision_id, g.part_id, l.name AS lib, g.name,
 const SQL_LATEST_PUBLISHED_BY_LIB_NAME: &str = r#"
 SELECT g.id, g.revision_id, g.part_id, l.name AS lib, g.name,
        g.ref_des, g.description, g.keywords, g.fp_filters,
-       g.datasheet, g.footprint, g.pin_count, g.body, g.body_format,
+       g.datasheet, g.footprint, g.pin_count, g.body, g.body_format, g.symbol_text,
+       g.provenance_json, g.status, g.content_hash, g.published_at
+  FROM generated_symbol g
+  JOIN lib           l ON l.id = g.lib_id
+ WHERE l.name  = ?1
+   AND g.name  = ?2
+   AND g.status = 'published'
+ ORDER BY g.published_at DESC
+ LIMIT 1
+"#;
+
+const SQL_LATEST_PUBLISHED_BY_LIB_NAME_LEGACY: &str = r#"
+SELECT g.id, g.revision_id, g.part_id, l.name AS lib, g.name,
+       g.ref_des, g.description, g.keywords, g.fp_filters,
+       g.datasheet, g.footprint, g.pin_count, g.body, g.body_format, '' AS symbol_text,
        g.provenance_json, g.status, g.content_hash, g.published_at
   FROM generated_symbol g
   JOIN lib           l ON l.id = g.lib_id
@@ -531,6 +588,7 @@ struct GeneratedRow {
     footprint: String,
     body: Vec<u8>,
     body_format: String,
+    symbol_text: String,
 }
 
 impl GeneratedRow {
@@ -539,6 +597,7 @@ impl GeneratedRow {
             return Err(Error::UnknownBodyFormat(self.body_format));
         }
         let body: SymbolBody = postcard::from_bytes(&self.body)?;
+        let tokito_sym = (!self.symbol_text.is_empty()).then_some(self.symbol_text);
         Ok(ResolvedSymbol {
             lib: self.lib,
             name: self.name,
@@ -550,6 +609,7 @@ impl GeneratedRow {
             footprint: self.footprint,
             parent: None,
             body,
+            tokito_sym,
         })
     }
 }
@@ -567,5 +627,6 @@ fn row_to_generated(r: &rusqlite::Row<'_>) -> rusqlite::Result<GeneratedRow> {
         footprint: r.get::<_, String>(10)?,
         body: r.get::<_, Vec<u8>>(12)?,
         body_format: r.get::<_, String>(13)?,
+        symbol_text: r.get::<_, String>(14)?,
     })
 }

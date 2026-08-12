@@ -12,6 +12,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 mod emit;
+mod generated_source;
 mod ingest;
 mod kicad;
 mod report;
@@ -43,9 +44,8 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Merge generated symbols from a source `symbols.sqlite` (typically
-    /// tokito-ai's `generated.sqlite`, populated by the ingestion service
-    /// in Wave C.1) into a target `symbols.sqlite`.
+    /// Merge generated symbols from tokito-ai's `generated.sqlite`, populated
+    /// by the ingestion service, into a target served `symbols.sqlite`.
     ///
     /// The target file is opened read-write. Each revision from the source
     /// is inserted via `tokito_symbols::generated::insert_revision`, which
@@ -57,7 +57,7 @@ enum Command {
         #[arg(long)]
         db: PathBuf,
 
-        /// Source `symbols.sqlite` (opened read-only).
+        /// Source tokito-ai `generated.sqlite` (opened read-only).
         #[arg(long)]
         source: PathBuf,
     },
@@ -213,7 +213,7 @@ fn run_generated_sync(db: &std::path::Path, source: &std::path::Path) -> anyhow:
     // official catalogs. Install the additive tables/triggers before merging.
     conn.execute_batch(tokito_symbols::SCHEMA_SQL)?;
     let tx = conn.transaction()?;
-    let count = tokito_symbols::generated::sync_from(&tx, source)?;
+    let count = generated_source::sync_from_ingestion(&tx, source)?;
     tx.commit()?;
     tracing::info!(
         merged = count,
