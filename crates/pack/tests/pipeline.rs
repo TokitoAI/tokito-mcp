@@ -211,9 +211,7 @@ fn generated_subcommand_merges_source_into_served_artifact() {
     let source = tmp.path().join("generated.sqlite");
     let src_conn = rusqlite::Connection::open(&source).unwrap();
     src_conn
-        .execute_batch(include_str!(
-            "../../../../tokito-ai/migrations/generated_0001_init.sql"
-        ))
+        .execute_batch(include_str!("fixtures/tokito_ai_generated_revision.sql"))
         .unwrap();
     let symbol_text = r#"(tokito_symbol_lib
   (version 20251024)
