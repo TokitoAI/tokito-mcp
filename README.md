@@ -131,7 +131,7 @@ Errors are typed: `{"error": {"code": "bad_request" | "not_found" | ..., "messag
 | `--db` | `TOKITO_MCP_DB` | _(required)_ | Path to `symbols.sqlite` |
 | `--generated-db` | `TOKITO_MCP_GENERATED_DB` | _(none)_ | Optional live generated-symbol SQLite catalog, opened read-only. Exact generated resolve, provenance, generated-library lookup, and search route here without an MCP restart. |
 | `--addr` | `TOKITO_MCP_ADDR` | `127.0.0.1:8090` | Bind address |
-| `--cache` | `TOKITO_MCP_CACHE` | `2048` | Per-process resolved-symbol LRU capacity |
+| `--cache` | `TOKITO_MCP_CACHE` | `2048` | Per-process resolved-symbol cache capacity |
 | `--allowed-hosts` | `TOKITO_MCP_ALLOWED_HOSTS` | _(loopback only)_ | Comma-separated `Host` authorities allowed on `/mcp` (DNS-rebinding guard). Public deployments set their real host(s), e.g. `mcp.tokito.dev,mcp.tokito.dev:9443`. Empty keeps the safe loopback default. |
 | `--allowed-origins` | `TOKITO_MCP_ALLOWED_ORIGINS` | _(none)_ | Comma-separated browser origins for REST CORS **and** MCP `Origin` validation, e.g. `https://app.tokito.dev`. Empty disables both. |
 | `--max-sessions` | `TOKITO_MCP_MAX_SESSIONS` | `256` | Max concurrent MCP sessions; `initialize` past this is rejected so a session loop can't grow the session map / task count unbounded. |
@@ -181,7 +181,7 @@ Alongside `symbols.sqlite`, `pack` writes:
 
 ## Performance notes
 
-- The resolver caches fully-resolved (extends-merged) symbols in a `moka` LRU. The default `--cache 2048` covers the working set for typical agent workloads.
+- The resolver caches fully-resolved (extends-merged) symbols in a bounded `moka` cache. Moka uses TinyLFU-style admission/eviction rather than strict LRU; the default `--cache 2048` covers the working set for typical agent workloads.
 - FTS5 search is single-digit ms on the bundled artifact; `find_compatible` filters scale linearly in matches but cap at `limit`.
 - The server is single-process with independent mutexes for the official and optional generated catalogs. Production is exposed only through the configured Cloudflare edge at `mcp.tokito.dev`.
 

@@ -184,6 +184,8 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          build-args: |
+            SYMBOLS_BLAKE3=${{ needs.build-artifacts.outputs.symbols_blake3 }}
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           labels: |

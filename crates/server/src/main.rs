@@ -24,7 +24,7 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1:8090", env = "TOKITO_MCP_ADDR")]
     addr: String,
 
-    /// Resolver LRU capacity (resolved symbols cached per process).
+    /// Resolver cache capacity (resolved symbols cached per process).
     #[arg(long, default_value_t = 2048, env = "TOKITO_MCP_CACHE")]
     cache: u64,
 
