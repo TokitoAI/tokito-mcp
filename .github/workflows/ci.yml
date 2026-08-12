@@ -82,7 +82,18 @@ jobs:
         run: gh release download --repo "${{ github.repository }}" --pattern symbols.sqlite
 
       - name: Build runtime image
-        run: docker build --tag tokito-mcp:ci .
+        run: |
+          catalog_blake3="$(b3sum symbols.sqlite | cut -d' ' -f1)"
+          docker build \
+            --build-arg "SYMBOLS_BLAKE3=${catalog_blake3}" \
+            --tag tokito-mcp:ci .
+          if docker build \
+            --target catalog-validator \
+            --build-arg "SYMBOLS_BLAKE3=$(printf '0%.0s' {1..64})" \
+            .; then
+            echo "catalog validation accepted an incorrect BLAKE3" >&2
+            exit 1
+          fi
 
       - name: Validate image health and protocol
         run: |

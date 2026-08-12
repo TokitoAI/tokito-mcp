@@ -2,7 +2,7 @@
 #
 # Build:
 #   docker build -t tokito-mcp .                       # uses local symbols.sqlite if present
-#   docker build --build-arg SYMBOLS_SHA=<blake3> \    # for CI: verifies the artifact
+#   docker build --build-arg SYMBOLS_BLAKE3=<blake3> \ # verifies the baked artifact
 #                -t tokito-mcp .
 #
 # Run:
@@ -41,6 +41,23 @@ COPY crates ./crates
 RUN touch crates/server/src/main.rs crates/symbols/src/lib.rs
 RUN cargo build --release -p tokito-mcp-server
 
+# ---- catalog integrity gate ----
+FROM debian:bookworm-slim AS catalog-validator
+
+RUN apt-get update && apt-get install -y --no-install-recommends b3sum \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /validation
+COPY symbols.sqlite ./symbols.sqlite
+
+# Release builds pass the hash emitted by tokito-mcp-pack's manifest. Keeping
+# the argument optional preserves local developer builds while making a
+# supplied integrity assertion enforceable rather than decorative.
+ARG SYMBOLS_BLAKE3=""
+RUN if [ -n "$SYMBOLS_BLAKE3" ]; then \
+        printf '%s  %s\n' "$SYMBOLS_BLAKE3" symbols.sqlite | b3sum --check --strict; \
+    fi
+
 # ---- runtime ----
 FROM debian:bookworm-slim AS runtime
 
@@ -56,8 +73,9 @@ COPY --from=builder /work/target/release/tokito-mcp-server /usr/local/bin/tokito
 
 # Symbol artifact baked into the image. Build context must contain it — the
 # release workflow copies the artifact built by tokito-mcp-pack into the build
-# context before invoking `docker build`.
-COPY symbols.sqlite /opt/tokito/symbols.sqlite
+# context before invoking `docker build`. Copy only from the validation stage,
+# so the runtime can never bypass a supplied digest check.
+COPY --from=catalog-validator /validation/symbols.sqlite /opt/tokito/symbols.sqlite
 
 USER tokito
 
