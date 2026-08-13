@@ -45,6 +45,12 @@ struct Args {
     max_sessions: usize,
 }
 
+fn normalize_allowlists(args: &mut Args) {
+    args.allowed_hosts.retain(|value| !value.trim().is_empty());
+    args.allowed_origins
+        .retain(|value| !value.trim().is_empty());
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -54,7 +60,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+    normalize_allowlists(&mut args);
     tracing::info!(?args.db, ?args.generated_db, addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
 
     let state = AppState::open_with_generated(&args.db, args.generated_db.as_deref(), args.cache)?;
@@ -83,4 +90,43 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(addr = %args.addr, "listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_allowlist_environment_values_stay_disabled() {
+        let mut args = Args::try_parse_from([
+            "tokito-mcp-server",
+            "--db",
+            "symbols.sqlite",
+            "--allowed-hosts",
+            "",
+            "--allowed-origins",
+            "",
+        ])
+        .expect("parse empty compose values");
+        normalize_allowlists(&mut args);
+        assert!(args.allowed_hosts.is_empty());
+        assert!(args.allowed_origins.is_empty());
+    }
+
+    #[test]
+    fn normalization_preserves_nonempty_allowlist_entries() {
+        let mut args = Args::try_parse_from([
+            "tokito-mcp-server",
+            "--db",
+            "symbols.sqlite",
+            "--allowed-hosts",
+            "mcp.tokito.dev,,api.tokito.dev",
+            "--allowed-origins",
+            ",https://app.tokito.dev",
+        ])
+        .expect("parse allowlists");
+        normalize_allowlists(&mut args);
+        assert_eq!(args.allowed_hosts, ["mcp.tokito.dev", "api.tokito.dev"]);
+        assert_eq!(args.allowed_origins, ["https://app.tokito.dev"]);
+    }
 }
