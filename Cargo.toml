@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
@@ -16,7 +16,7 @@ homepage = "https://github.com/TokitoAI/tokito-mcp"
 
 [workspace.dependencies]
 # Shared crate
-tokito-symbols = { version = "=0.1.5", path = "crates/symbols" }
+tokito-symbols = { version = "=0.1.6", path = "crates/symbols" }
 
 # SQLite (bundled — no system dep)
 rusqlite = { version = "0.32", features = ["bundled", "blob", "load_extension"] }
