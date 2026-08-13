@@ -176,6 +176,7 @@ jobs:
           REPO=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
           VERSION='${{ needs.build-artifacts.outputs.version }}'
           {
+            echo "image=${REPO}"
             echo "tags<<EOF"
             echo "${REPO}:${VERSION}"
             echo "${REPO}:latest"
@@ -191,6 +192,8 @@ jobs:
           build-args: |
             SYMBOLS_BLAKE3=${{ needs.build-artifacts.outputs.symbols_blake3 }}
           push: true
+          provenance: true
+          sbom: true
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -200,7 +203,7 @@ jobs:
       - name: Attest immutable container provenance
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/tokito-mcp
+          subject-name: ${{ steps.tags.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
