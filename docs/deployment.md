@@ -89,6 +89,27 @@ The image healthcheck calls the installed `curl` binary against
 `http://localhost:8090/v1/health`. Cloudflared starts only after this check
 passes.
 
+Before deploying, verify the immutable image's GitHub/Sigstore build
+provenance against this repository:
+
+```bash
+gh attestation verify \
+  oci://ghcr.io/tokitoai/tokito-mcp:<release-tag> \
+  --repo TokitoAI/tokito-mcp
+```
+
+Release files are attested individually. After downloading a release, verify
+each consumed file before trusting `SHA256SUMS` or installing the binary:
+
+```bash
+gh attestation verify ./tokito-mcp-server-linux-x86_64 \
+  --repo TokitoAI/tokito-mcp
+gh attestation verify ./symbols.sqlite --repo TokitoAI/tokito-mcp
+```
+
+Attestations use GitHub Actions OIDC with short-lived Sigstore certificates;
+there is no long-lived signing key in repository or VPS secrets.
+
 ## Post-deploy verification
 
 From a machine outside the VPS/network, verify DNS, edge TLS, REST health, MCP
