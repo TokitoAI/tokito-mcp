@@ -16,7 +16,7 @@ homepage = "https://github.com/TokitoAI/tokito-mcp"
 
 [workspace.dependencies]
 # Shared crate
-tokito-symbols = { path = "crates/symbols" }
+tokito-symbols = { version = "=0.1.5", path = "crates/symbols" }
 
 # SQLite (bundled — no system dep)
 rusqlite = { version = "0.32", features = ["bundled", "blob", "load_extension"] }
@@ -24,7 +24,7 @@ rusqlite = { version = "0.32", features = ["bundled", "blob", "load_extension"] 
 # Serde + body encoding
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-postcard = { version = "1", features = ["use-std"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
 
 # HTTP + MCP server
 axum = { version = "0.7", features = ["macros", "json"] }
