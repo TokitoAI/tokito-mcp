@@ -1588,7 +1588,7 @@ dependencies = [
 
 [[package]]
 name = "tokito-mcp-pack"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "tokito-mcp-server"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -1629,6 +1629,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "tokito-mcp-pack",
  "tokito-symbols",
  "tower",
  "tower-http",
@@ -1638,7 +1639,7 @@ dependencies = [
 
 [[package]]
 name = "tokito-symbols"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "blake3",
  "moka",

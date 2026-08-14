@@ -1,6 +1,7 @@
 //! tokito-mcp-server CLI bootstrap. Library lives in `lib.rs`.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::Parser;
 use tokito_mcp_server::{build_app_with_config, state::AppState, ServerConfig};
@@ -19,6 +20,24 @@ struct Args {
     /// image release.
     #[arg(long, env = "TOKITO_MCP_GENERATED_DB")]
     generated_db: Option<PathBuf>,
+
+    /// Tokito Cloud writer-side generated.sqlite. When set with
+    /// `--generated-pack-db`, the server publishes validated immutable packs
+    /// and hot-swaps them without interrupting official catalog traffic.
+    #[arg(long, env = "TOKITO_MCP_GENERATED_SOURCE_DB")]
+    generated_source_db: Option<PathBuf>,
+
+    /// Writable path for the validated generated catalog pack.
+    #[arg(long, env = "TOKITO_MCP_GENERATED_PACK_DB")]
+    generated_pack_db: Option<PathBuf>,
+
+    /// Poll interval for writer-side generated revisions.
+    #[arg(
+        long,
+        default_value_t = 30,
+        env = "TOKITO_MCP_GENERATED_REFRESH_SECONDS"
+    )]
+    generated_refresh_seconds: u64,
 
     /// Bind address.
     #[arg(long, default_value = "127.0.0.1:8090", env = "TOKITO_MCP_ADDR")]
@@ -62,9 +81,34 @@ async fn main() -> anyhow::Result<()> {
 
     let mut args = Args::parse();
     normalize_allowlists(&mut args);
-    tracing::info!(?args.db, ?args.generated_db, addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
+    if args.generated_source_db.is_some() != args.generated_pack_db.is_some() {
+        anyhow::bail!("generated source and pack paths must be configured together");
+    }
+    if args.generated_source_db.is_some() && args.generated_db.is_some() {
+        anyhow::bail!("configure either a generated pack or a generated source, not both");
+    }
+    if args.generated_refresh_seconds == 0 {
+        anyhow::bail!("generated refresh interval must be non-zero");
+    }
+    tracing::info!(?args.db, ?args.generated_db, ?args.generated_source_db, ?args.generated_pack_db, addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
 
-    let state = AppState::open_with_generated(&args.db, args.generated_db.as_deref(), args.cache)?;
+    let mut generated_db = args.generated_db.as_deref();
+    if let (Some(source), Some(pack)) = (&args.generated_source_db, &args.generated_pack_db) {
+        match tokito_mcp_pack::publish_generated_pack(&args.db, source, pack) {
+            Ok(merged) => {
+                tracing::info!(merged, path = %pack.display(), "initial generated pack published");
+                generated_db = Some(pack);
+            }
+            Err(error) if pack.is_file() => {
+                tracing::error!(%error, path = %pack.display(), "initial generated pack failed; opening last-known-good pack");
+                generated_db = Some(pack);
+            }
+            Err(error) => {
+                tracing::error!(%error, "initial generated pack failed; starting official catalog only");
+            }
+        }
+    }
+    let state = AppState::open_with_generated(&args.db, generated_db, args.cache)?;
     tracing::info!(
         commit = %state.manifest.source_commit,
         symbols = state.manifest.symbol_count,
@@ -84,12 +128,60 @@ async fn main() -> anyhow::Result<()> {
         "exposure config (allowed_hosts None = loopback-only default)"
     );
 
+    let app_state_for_refresh = state.clone();
     let app = build_app_with_config(state, cfg).layer(TraceLayer::new_for_http());
+
+    if let (Some(source), Some(pack)) = (args.generated_source_db, args.generated_pack_db) {
+        let state = app_state_for_refresh.clone();
+        let base = args.db.clone();
+        let interval = Duration::from_secs(args.generated_refresh_seconds);
+        tokio::spawn(async move {
+            let mut fingerprint = generated_source_fingerprint(&source).ok();
+            loop {
+                tokio::time::sleep(interval).await;
+                let next = match generated_source_fingerprint(&source) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(%error, "generated source fingerprint failed");
+                        continue;
+                    }
+                };
+                if fingerprint.as_ref() == Some(&next) {
+                    continue;
+                }
+                match tokito_mcp_pack::publish_generated_pack(&base, &source, &pack) {
+                    Ok(merged) if state.reload_generated(&pack) => {
+                        fingerprint = Some(next);
+                        tracing::info!(merged, path = %pack.display(), "generated catalog hot-swapped");
+                    }
+                    Ok(_) => {
+                        tracing::error!(path = %pack.display(), "published generated pack could not be reopened")
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, "generated pack publication failed; retaining last-known-good catalog")
+                    }
+                }
+            }
+        });
+    }
 
     let listener = tokio::net::TcpListener::bind(&args.addr).await?;
     tracing::info!(addr = %args.addr, "listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn generated_source_fingerprint(path: &std::path::Path) -> anyhow::Result<(u64, String, String)> {
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.query_row(
+        "SELECT COUNT(*), COALESCE(MAX(published_at), ''), COALESCE(MAX(revision_id), '') FROM generated_revision",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .map_err(Into::into)
 }
 
 #[cfg(test)]
