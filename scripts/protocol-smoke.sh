@@ -10,10 +10,24 @@ if [[ "$ENDPOINT" != */mcp ]]; then
     exit 2
 fi
 BASE_URL="${ENDPOINT%/mcp}"
+USER_AGENT="${TOKITO_MCP_USER_AGENT:-tokito/production-edge-smoke}"
+PROTOCOL_VERSION="2025-03-26"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+cleanup() {
+    if [[ -s "$TMP/session_id" ]]; then
+        curl --silent --show-error --max-time 5 \
+            --request DELETE "$ENDPOINT" \
+            --user-agent "$USER_AGENT" \
+            --header "mcp-session-id: $(cat "$TMP/session_id")" \
+            --header "mcp-protocol-version: $PROTOCOL_VERSION" \
+            --output /dev/null || true
+    fi
+    rm -rf "$TMP"
+}
+trap cleanup EXIT
 
-health="$(curl --fail --silent --show-error --max-time 10 "$BASE_URL/v1/health")"
+health="$(curl --fail --silent --show-error --max-time 10 \
+    --user-agent "$USER_AGENT" "$BASE_URL/v1/health")"
 [[ "$health" == "ok" ]] || {
     echo "unexpected health response: $health" >&2
     exit 1
@@ -23,6 +37,7 @@ curl --fail --silent --show-error --max-time 15 \
     --dump-header "$TMP/headers" \
     --output "$TMP/initialize" \
     --request POST "$ENDPOINT" \
+    --user-agent "$USER_AGENT" \
     --header "content-type: application/json" \
     --header "accept: application/json, text/event-stream" \
     --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"tokito-deploy-smoke","version":"1.0"}}}'
@@ -53,20 +68,26 @@ if sys.argv[2] and info["version"] != sys.argv[2]:
 print(f"initialize ok: {info['name']} v{info['version']}")
 PY
 
+printf '%s\n' "$session_id" > "$TMP/session_id"
+
 curl --fail --silent --show-error --max-time 15 \
     --output /dev/null \
     --request POST "$ENDPOINT" \
+    --user-agent "$USER_AGENT" \
     --header "content-type: application/json" \
     --header "accept: application/json, text/event-stream" \
     --header "mcp-session-id: $session_id" \
+    --header "mcp-protocol-version: $PROTOCOL_VERSION" \
     --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 
 curl --fail --silent --show-error --max-time 15 \
     --output "$TMP/tools" \
     --request POST "$ENDPOINT" \
+    --user-agent "$USER_AGENT" \
     --header "content-type: application/json" \
     --header "accept: application/json, text/event-stream" \
     --header "mcp-session-id: $session_id" \
+    --header "mcp-protocol-version: $PROTOCOL_VERSION" \
     --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 
 python3 - "$TMP/tools" <<'PY'
@@ -92,9 +113,11 @@ PY
 curl --fail --silent --show-error --max-time 15 \
     --output "$TMP/part_offer" \
     --request POST "$ENDPOINT" \
+    --user-agent "$USER_AGENT" \
     --header "content-type: application/json" \
     --header "accept: application/json, text/event-stream" \
     --header "mcp-session-id: $session_id" \
+    --header "mcp-protocol-version: $PROTOCOL_VERSION" \
     --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"part_offer_query","arguments":{"symbol_id":"Device:R","value":"330","package":"R_0603","market":"IN"}}}'
 
 python3 - "$TMP/part_offer" <<'PY'
@@ -121,9 +144,11 @@ PY
 curl --fail --silent --show-error --max-time 15 \
     --output "$TMP/generated" \
     --request POST "$ENDPOINT" \
+    --user-agent "$USER_AGENT" \
     --header "content-type: application/json" \
     --header "accept: application/json, text/event-stream" \
     --header "mcp-session-id: $session_id" \
+    --header "mcp-protocol-version: $PROTOCOL_VERSION" \
     --data '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"resolve_by_mpn","arguments":{"manufacturer":"Tokito deploy smoke","mpn":"NOT-A-REAL-PART","package":"NONE"}}}'
 
 python3 - "$TMP/generated" <<'PY'
@@ -147,9 +172,11 @@ PY
 curl --fail --silent --show-error --max-time 15 \
     --output "$TMP/provenance" \
     --request POST "$ENDPOINT" \
+    --user-agent "$USER_AGENT" \
     --header "content-type: application/json" \
     --header "accept: application/json, text/event-stream" \
     --header "mcp-session-id: $session_id" \
+    --header "mcp-protocol-version: $PROTOCOL_VERSION" \
     --data '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_symbol_provenance","arguments":{"revision_id":"gen_sha256_not_real"}}}'
 
 python3 - "$TMP/provenance" <<'PY'
