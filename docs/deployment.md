@@ -132,6 +132,9 @@ release version, verifies REST health, negotiates and closes a stateful MCP
 session, checks the complete tool catalog, and calls representative official,
 BOM-offer, and generated-symbol tools. A Cloudflare challenge, version drift,
 session break, missing tool, or invalid response fails visibly in Actions.
+Edge failures log only the HTTP status and safe `cf-ray`, `cf-mitigated`,
+`server`, and content-type response headers; challenge bodies are not retained
+or printed.
 
 Cloudflare policy must allow the production `tokito/*` machine user agent on
 `mcp.tokito.dev` without an interactive challenge. It must not bypass the
