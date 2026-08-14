@@ -128,6 +128,7 @@ fn search_excludes_non_published_generated_revisions() {
             flags: 0,
             body: &body_bytes,
             body_format: BODY_FORMAT_POSTCARD_V1,
+            symbol_text: "",
             provenance_json: "{}",
             status: PublicationStatus::Quarantined,
             content_hash: "sha256:00",

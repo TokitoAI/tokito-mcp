@@ -114,6 +114,7 @@ impl Resolver {
             footprint: leaf.footprint.clone(),
             parent,
             body,
+            tokito_sym: None,
         };
 
         let arc = Arc::new(resolved);
