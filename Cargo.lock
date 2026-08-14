@@ -1629,6 +1629,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
+ "tokito-mcp-pack",
  "tokito-symbols",
  "tower",
  "tower-http",

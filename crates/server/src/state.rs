@@ -6,7 +6,7 @@
 //! isn't blocked on SQL.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -21,7 +21,7 @@ pub struct AppState {
     /// Optional live generated-symbol catalog. In production the ingestion
     /// service owns this file and MCP opens it read-only; ordinary catalog
     /// queries continue to use the immutable release artifact in `conn`.
-    pub generated_conn: Option<Arc<Mutex<Connection>>>,
+    pub generated_conn: Arc<RwLock<Option<Arc<Mutex<Connection>>>>>,
     pub resolver: tokito_symbols::resolver::Resolver,
     pub manifest: Arc<Manifest>,
 }
@@ -52,7 +52,7 @@ impl AppState {
         let manifest = load_manifest(&conn);
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
-            generated_conn,
+            generated_conn: Arc::new(RwLock::new(generated_conn)),
             resolver: tokito_symbols::resolver::Resolver::new(cache_capacity),
             manifest: Arc::new(manifest),
         })
@@ -63,6 +63,8 @@ impl AppState {
     /// become visible without rebuilding or restarting the MCP image.
     pub fn generated_connection(&self) -> Arc<Mutex<Connection>> {
         self.generated_conn
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
             .clone()
             .unwrap_or_else(|| self.conn.clone())
     }
@@ -96,7 +98,12 @@ impl AppState {
             )?
         };
 
-        if let Some(generated_conn) = &self.generated_conn {
+        let generated_conn = self
+            .generated_conn
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(generated_conn) = generated_conn {
             items.retain(|item| item.source == Source::Official);
             let conn = generated_conn.lock().unwrap_or_else(|p| p.into_inner());
             let mut generated = tokito_symbols::search::search(
@@ -121,6 +128,20 @@ impl AppState {
         items.retain(|item| seen.insert((item.lib.clone(), item.name.clone())));
         items.truncate(limit as usize);
         Ok(items)
+    }
+
+    /// Atomically replace the optional generated catalog connection. Existing
+    /// requests retain their `Arc` to the previous immutable file while new
+    /// requests observe the newly validated pack.
+    pub fn reload_generated(&self, path: &Path) -> bool {
+        let Some(connection) = open_optional_generated_catalog(path) else {
+            return false;
+        };
+        *self
+            .generated_conn
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = Some(connection);
+        true
     }
 }
 
