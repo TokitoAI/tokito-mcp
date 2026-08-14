@@ -24,7 +24,7 @@ On the VPS, keep the deployment in `/opt/tokito-mcp`:
 Copy `deploy/production/compose.yml` and `.env.example`, then set:
 
 - `TOKITO_MCP_IMAGE`: an exact release tag such as
-  `ghcr.io/tokitoai/tokito-mcp:v0.1.5`. Do not deploy `latest`.
+  `ghcr.io/tokitoai/tokito-mcp:v0.1.7`. Do not deploy `latest`.
 - `TOKITO_MCP_ALLOWED_HOSTS`: the public Host values the server accepts, such
   as `mcp.tokito.dev`.
 - `CLOUDFLARED_IMAGE`: the operator-approved cloudflared version **and digest**,
@@ -89,13 +89,34 @@ The image healthcheck calls the installed `curl` binary against
 `http://localhost:8090/v1/health`. Cloudflared starts only after this check
 passes.
 
+Before deploying, verify the immutable image's GitHub/Sigstore build
+provenance against this repository:
+
+```bash
+gh attestation verify \
+  oci://ghcr.io/tokitoai/tokito-mcp:<release-tag> \
+  --repo TokitoAI/tokito-mcp
+```
+
+Release files are attested individually. After downloading a release, verify
+each consumed file before trusting `SHA256SUMS` or installing the binary:
+
+```bash
+gh attestation verify ./tokito-mcp-server-linux-x86_64 \
+  --repo TokitoAI/tokito-mcp
+gh attestation verify ./symbols.sqlite --repo TokitoAI/tokito-mcp
+```
+
+Attestations use GitHub Actions OIDC with short-lived Sigstore certificates;
+there is no long-lived signing key in repository or VPS secrets.
+
 ## Post-deploy verification
 
 From a machine outside the VPS/network, verify DNS, edge TLS, REST health, MCP
 initialization, the advertised server version, and the tool catalog:
 
 ```bash
-TOKITO_MCP_EXPECTED_VERSION=0.1.5 \
+TOKITO_MCP_EXPECTED_VERSION=0.1.7 \
   bash scripts/protocol-smoke.sh https://mcp.tokito.dev/mcp
 ```
 
@@ -104,6 +125,22 @@ catalog check, run `TOKITO_MCP_URL=https://mcp.tokito.dev ./scripts/smoke.sh`.
 
 Do not call a deployment complete until both the container healthcheck and the
 external protocol smoke test pass.
+
+The `public edge smoke` workflow repeats that credential-free production check
+hourly from a GitHub-hosted machine client. It resolves the latest immutable
+release version, verifies REST health, negotiates and closes a stateful MCP
+session, checks the complete tool catalog, and calls representative official,
+BOM-offer, and generated-symbol tools. A Cloudflare challenge, version drift,
+session break, missing tool, or invalid response fails visibly in Actions.
+Edge failures log only the HTTP status and safe `cf-ray`, `cf-mitigated`,
+`server`, and content-type response headers; challenge bodies are not retained
+or printed.
+
+Cloudflare policy must allow the production `tokito/*` machine user agent on
+`mcp.tokito.dev` without an interactive challenge. It must not bypass the
+application's TLS, Host allowlist, Origin/CORS policy, body/time/session bounds,
+or tunnel-only origin. The scheduled smoke validates observable behavior; the
+private infrastructure repository remains the authority for edge configuration.
 
 ## Rollback
 
