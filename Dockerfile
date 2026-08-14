@@ -12,7 +12,7 @@
 # — no separate volume mount needed.
 
 # ---- builder ----
-FROM rust:1.88-slim-bookworm AS builder
+FROM rust:1.88-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89 AS builder
 
 # rusqlite's `bundled` feature compiles SQLite from source; needs a C toolchain.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,7 +42,7 @@ RUN touch crates/server/src/main.rs crates/symbols/src/lib.rs
 RUN cargo build --release -p tokito-mcp-server
 
 # ---- catalog integrity gate ----
-FROM debian:bookworm-slim AS catalog-validator
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS catalog-validator
 
 RUN apt-get update && apt-get install -y --no-install-recommends b3sum \
     && rm -rf /var/lib/apt/lists/*
@@ -59,7 +59,7 @@ RUN if [ -n "$SYMBOLS_BLAKE3" ]; then \
     fi
 
 # ---- runtime ----
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl \
