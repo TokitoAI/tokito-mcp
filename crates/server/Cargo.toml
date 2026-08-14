@@ -26,6 +26,7 @@ tokito-symbols.workspace = true
 
 [dependencies]
 tokito-symbols.workspace = true
+tokito-mcp-pack.workspace = true
 rusqlite.workspace = true
 
 axum.workspace = true

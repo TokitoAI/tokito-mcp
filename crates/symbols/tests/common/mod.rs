@@ -224,6 +224,7 @@ pub fn insert_generated_fixture(
             flags: 0,
             body: &body_bytes,
             body_format: BODY_FORMAT_POSTCARD_V1,
+            symbol_text: "",
             provenance_json: &provenance.to_string(),
             status: PublicationStatus::Published,
             content_hash: &content_hash,

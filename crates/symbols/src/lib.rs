@@ -18,6 +18,8 @@ pub const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bump on any breaking schema or body-format change. Version 2 introduces
 /// the `part_registry` and `generated_symbol` tables plus their FTS mirror.
+/// The optional canonical-symbol column is additive and queried defensively,
+/// so older v2 release artifacts remain readable.
 pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 /// Oldest schema version this build still understands. v1 artifacts are
