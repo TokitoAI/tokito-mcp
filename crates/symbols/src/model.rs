@@ -218,6 +218,10 @@ pub struct ResolvedSymbol {
     pub footprint: String,
     pub parent: Option<(String, String)>,
     pub body: SymbolBody,
+    /// Exact compiler-emitted `.tokito_sym` for generated revisions.
+    /// Official and older catalog rows omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokito_sym: Option<String>,
 }
 
 /// A search-result row — catalog metadata only, no body.

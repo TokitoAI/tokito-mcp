@@ -29,7 +29,7 @@ pub fn fixture_app_state() -> AppState {
     };
     AppState {
         conn: Arc::new(Mutex::new(conn)),
-        generated_conn: None,
+        generated_conn: Arc::new(std::sync::RwLock::new(None)),
         resolver: Resolver::new(64),
         manifest: Arc::new(manifest),
     }
@@ -120,6 +120,7 @@ pub fn fixture_app_state_with_generated() -> AppState {
             flags: 0,
             body: &body_bytes,
             body_format: BODY_FORMAT_POSTCARD_V1,
+            symbol_text: "",
             provenance_json: &provenance.to_string(),
             status: PublicationStatus::Published,
             content_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -137,7 +138,9 @@ pub fn fixture_app_state_with_generated() -> AppState {
     };
     AppState {
         conn: Arc::new(Mutex::new(conn)),
-        generated_conn: Some(Arc::new(Mutex::new(generated_conn))),
+        generated_conn: Arc::new(std::sync::RwLock::new(Some(Arc::new(Mutex::new(
+            generated_conn,
+        ))))),
         resolver: Resolver::new(64),
         manifest: Arc::new(manifest),
     }

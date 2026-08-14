@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS generated_symbol (
     flags              INTEGER NOT NULL DEFAULT 0,
     body               BLOB    NOT NULL,                 -- generated symbols never extend
     body_format        TEXT    NOT NULL,                 -- 'postcard-v1'
+    symbol_text         TEXT    NOT NULL DEFAULT '',      -- exact compiler-emitted .tokito_sym bytes
     provenance_json    TEXT    NOT NULL,                 -- CONTRACTS.md §5 record
     status             TEXT    NOT NULL
                        CHECK (status IN ('draft','validating','verified','published','superseded','quarantined')),
