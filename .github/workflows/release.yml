@@ -144,6 +144,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -173,6 +176,7 @@ jobs:
           REPO=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')
           VERSION='${{ needs.build-artifacts.outputs.version }}'
           {
+            echo "image=${REPO}"
             echo "tags<<EOF"
             echo "${REPO}:${VERSION}"
             echo "${REPO}:latest"
@@ -180,6 +184,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build + push
+        id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -187,11 +192,20 @@ jobs:
           build-args: |
             SYMBOLS_BLAKE3=${{ needs.build-artifacts.outputs.symbols_blake3 }}
           push: true
+          provenance: true
+          sbom: true
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ needs.build-artifacts.outputs.version }}
+
+      - name: Attest immutable container provenance
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-name: ${{ steps.tags.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   # ----------------------------------------------------------------- release
   release:
@@ -202,6 +216,8 @@ jobs:
     environment: production
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -225,6 +241,16 @@ jobs:
           cp dist/build.log          release/build.log
           cp dist-server/tokito-mcp-server release/tokito-mcp-server-linux-x86_64
           (cd release && sha256sum * > SHA256SUMS)
+
+      - name: Attest release artifacts
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: |
+            release/symbols.sqlite
+            release/manifest.json
+            release/build.log
+            release/tokito-mcp-server-linux-x86_64
+            release/SHA256SUMS
 
       - name: Create / update release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
