@@ -26,8 +26,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-health="$(curl --fail --silent --show-error --max-time 10 \
-    --user-agent "$USER_AGENT" "$BASE_URL/v1/health")"
+health_status="$(curl --silent --show-error --max-time 10 \
+    --user-agent "$USER_AGENT" \
+    --dump-header "$TMP/health_headers" \
+    --output "$TMP/health" \
+    --write-out '%{http_code}' \
+    "$BASE_URL/v1/health" || true)"
+if [[ "$health_status" != "200" ]]; then
+    echo "public health returned HTTP ${health_status:-transport-error}" >&2
+    awk 'BEGIN {IGNORECASE=1} /^(cf-ray|cf-mitigated|server|content-type):/' \
+        "$TMP/health_headers" >&2
+    exit 1
+fi
+health="$(cat "$TMP/health")"
 [[ "$health" == "ok" ]] || {
     echo "unexpected health response: $health" >&2
     exit 1
