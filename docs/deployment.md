@@ -126,6 +126,19 @@ catalog check, run `TOKITO_MCP_URL=https://mcp.tokito.dev ./scripts/smoke.sh`.
 Do not call a deployment complete until both the container healthcheck and the
 external protocol smoke test pass.
 
+The `public edge smoke` workflow repeats that credential-free production check
+hourly from a GitHub-hosted machine client. It resolves the latest immutable
+release version, verifies REST health, negotiates and closes a stateful MCP
+session, checks the complete tool catalog, and calls representative official,
+BOM-offer, and generated-symbol tools. A Cloudflare challenge, version drift,
+session break, missing tool, or invalid response fails visibly in Actions.
+
+Cloudflare policy must allow the production `tokito/*` machine user agent on
+`mcp.tokito.dev` without an interactive challenge. It must not bypass the
+application's TLS, Host allowlist, Origin/CORS policy, body/time/session bounds,
+or tunnel-only origin. The scheduled smoke validates observable behavior; the
+private infrastructure repository remains the authority for edge configuration.
+
 ## Rollback
 
 Keep the previous release tag and digest in the deployment log. To roll back:
