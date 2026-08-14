@@ -185,7 +185,7 @@ fn prop_either(
         .unwrap_or_default()
 }
 
-fn pack_flags(f: &ParsedFlags) -> i64 {
+pub(crate) fn pack_flags(f: &ParsedFlags) -> i64 {
     (f.in_bom as i64)
         | ((f.on_board as i64) << 1)
         | ((f.in_pos_files as i64) << 2)
@@ -194,7 +194,7 @@ fn pack_flags(f: &ParsedFlags) -> i64 {
         | ((f.duplicate_pin_numbers_are_jumpers as i64) << 5)
 }
 
-fn build_body(ps: &ParsedSymbol) -> SymbolBody {
+pub(crate) fn build_body(ps: &ParsedSymbol) -> SymbolBody {
     SymbolBody {
         pins: ps.pins.iter().map(convert_pin).collect(),
         graphics: ps.graphics.iter().map(convert_graphic).collect(),
