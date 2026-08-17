@@ -28,6 +28,9 @@ tokito-symbols.workspace = true
 tokito-symbols.workspace = true
 tokito-mcp-pack.workspace = true
 rusqlite.workspace = true
+sha2.workspace = true
+hex.workspace = true
+reqwest.workspace = true
 
 axum.workspace = true
 tokio.workspace = true

@@ -33,8 +33,8 @@ writes.
 ### Docker
 
 ```bash
-docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.7
-docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.7
+docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.8
+docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.8
 curl http://localhost:8090/v1/health
 ```
 
