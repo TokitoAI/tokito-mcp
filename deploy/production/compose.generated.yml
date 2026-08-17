@@ -1,10 +1,21 @@
-# Production override when Tokito Cloud ingestion owns a live generated catalog.
-# The host directory must already contain a schema-compatible generated.sqlite.
+# Verified generated catalog synchronization from the Tokito control plane.
+# MCP never mounts or reads the writer database. It validates every revision,
+# builds an immutable pack, and retains the previous last-known-good pack.
 services:
   server:
     environment:
-      TOKITO_MCP_GENERATED_DB: /data/generated/generated.sqlite
+      TOKITO_MCP_GENERATED_CONTROL_PLANE_URL: ${TOKITO_GENERATED_CONTROL_PLANE_URL:-http://ai:8080}
+      TOKITO_MCP_GENERATED_CONTROL_PLANE_TOKEN_FILE: /run/secrets/catalog_sync_token
+      TOKITO_MCP_GENERATED_SOURCE_DB: /data/generated-packs/control-plane-cache.sqlite
+      TOKITO_MCP_GENERATED_PACK_DB: /data/generated-packs/generated-catalog.sqlite
+      TOKITO_MCP_GENERATED_REFRESH_SECONDS: ${TOKITO_MCP_GENERATED_REFRESH_SECONDS:-30}
     volumes:
-      # Kept writable for SQLite WAL shared-memory coordination. The MCP
-      # process itself opens the database READ_ONLY and enables query_only.
-      - ${TOKITO_GENERATED_DATA_DIR:?set TOKITO_GENERATED_DATA_DIR}:/data/generated
+      - ${TOKITO_GENERATED_PACK_DIR:?set TOKITO_GENERATED_PACK_DIR}:/data/generated-packs
+      - ${TOKITO_CATALOG_SYNC_TOKEN_FILE:?set TOKITO_CATALOG_SYNC_TOKEN_FILE}:/run/secrets/catalog_sync_token:ro
+    networks:
+      - default
+      - tokito-edge
+
+networks:
+  tokito-edge:
+    external: true

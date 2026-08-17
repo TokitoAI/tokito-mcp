@@ -18,7 +18,7 @@ On the VPS, keep the deployment in `/opt/tokito-mcp`:
   compose.yml
   compose.generated.yml
   .env
-  generated/generated.sqlite  # optional live ingestion catalog
+  generated-packs/             # rebuildable cache + last-known-good pack
 ```
 
 Copy `deploy/production/compose.yml` and `.env.example`, then set:
@@ -33,25 +33,29 @@ Copy `deploy/production/compose.yml` and `.env.example`, then set:
   is the only production secret in this stack.
 - `TOKITO_MCP_MAX_SESSIONS` and `RUST_LOG`: optional operational tuning.
 
-When the ingestion service is enabled, mount its canonical `generated.sqlite`
-into the server container and set `TOKITO_MCP_GENERATED_DB` to the in-container
-path. MCP opens it with SQLite read-only + `query_only`; an unavailable or
-uninitialized optional file is ignored and the immutable catalog continues to
-serve. The mount may remain writable only when SQLite WAL needs to maintain its
-shared-memory file.
-Generated commits become visible to resolve, provenance, exact symbol lookup,
-and search without rebuilding the MCP image. Do not expose the ingestion DB or
-DS-ViRe service through Cloudflare.
+When generated catalog delivery is enabled, join the shared private
+`tokito-edge` network and configure the authenticated Tokito Cloud control-plane
+URL plus its dedicated read-only sync-token file. MCP paginates immutable
+revision manifests, verifies each symbol digest, builds a complete SQLite pack,
+and atomically switches only after validation. An unavailable or invalid
+control-plane response retains the last-known-good pack and the official baked
+catalog continues to serve. MCP never mounts the writer database or receives
+writer credentials. Generated commits become visible to resolve, provenance,
+exact symbol lookup, and search without rebuilding the image. Do not expose
+Tokito Cloud's internal control-plane route or DS-ViRe through Cloudflare.
 
 Enable it by copying `deploy/production/compose.generated.yml`, setting
-`TOKITO_GENERATED_DATA_DIR`, and adding the override to every Compose command:
+`TOKITO_GENERATED_CONTROL_PLANE_URL`, `TOKITO_GENERATED_PACK_DIR`, and
+`TOKITO_CATALOG_SYNC_TOKEN_FILE`, and adding the override to every Compose
+command:
 
 ```bash
 docker compose -f compose.yml -f compose.generated.yml config --quiet
 docker compose -f compose.yml -f compose.generated.yml up -d
 ```
 
-Set `.env` to mode `0600`; never commit it. The Cloudflare remotely managed
+Create the external `tokito-edge` network once and keep the token file mode
+`0600`. Set `.env` to mode `0600`; never commit it. The Cloudflare remotely managed
 tunnel must route hostname `mcp.tokito.dev` to `http://server:8090`. The server
 allows that public `Host` through `TOKITO_MCP_ALLOWED_HOSTS`; do not rewrite it
 to `localhost`.

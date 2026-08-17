@@ -165,10 +165,14 @@ Release tags additionally publish the container image (`.github/workflows/releas
 ## Artifact format
 
 `symbols.sqlite` is the immutable official catalog baked into the hosted
-server image. A separately mounted `generated.sqlite` can provide live,
-published ingestion revisions at runtime; both use the same schema and are
-opened with SQLite `query_only`. Tokito Desktop consumes catalogs through the
-hosted MCP and does not open either artifact directly. Schema lives in
+server image. Production fetches authenticated immutable generated revisions
+from the Tokito Cloud control plane, verifies their identities and content
+hashes, builds a complete SQLite serving pack, and atomically promotes it while
+retaining the last-known-good pack on failure. MCP never mounts the writer
+database or receives writer credentials. A direct read-only `generated.sqlite`
+input remains only for local migration compatibility. Tokito Desktop consumes
+catalogs through the hosted MCP and does not open either artifact directly.
+Schema lives in
 [`crates/symbols/src/schema.sql`](crates/symbols/src/schema.sql). Symbol bodies
 (pins, graphics, fp_filters) are stored as compact
 [postcard](https://crates.io/crates/postcard) blobs decoded lazily; an FTS5
@@ -183,7 +187,9 @@ Alongside `symbols.sqlite`, `pack` writes:
 
 - The resolver caches fully-resolved (extends-merged) symbols in a bounded `moka` cache. Moka uses TinyLFU-style admission/eviction rather than strict LRU; the default `--cache 2048` covers the working set for typical agent workloads.
 - FTS5 search is single-digit ms on the bundled artifact; `find_compatible` filters scale linearly in matches but cap at `limit`.
-- The server is single-process with independent mutexes for the official and optional generated catalogs. Production is exposed only through the configured Cloudflare edge at `mcp.tokito.dev`.
+- The server is single-process with independent handles for the official and
+  optional generated serving catalogs. Production is exposed only through the
+  configured Cloudflare edge at `mcp.tokito.dev`.
 
 ## Source data
 

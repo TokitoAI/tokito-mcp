@@ -83,6 +83,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Validate production control-plane overlay
+        run: |
+          docker compose \
+            --env-file deploy/production/.env.example \
+            -f deploy/production/compose.yml \
+            -f deploy/production/compose.generated.yml \
+            config --quiet
+
       - name: Download the latest released catalog
         env:
           GH_TOKEN: ${{ github.token }}
