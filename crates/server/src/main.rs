@@ -3,10 +3,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anyhow::Context;
 use clap::Parser;
 use tokito_mcp_server::{build_app_with_config, state::AppState, ServerConfig};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
+
+mod control_plane;
 
 #[derive(Debug, Parser)]
 #[command(name = "tokito-mcp-server", version)]
@@ -26,6 +29,15 @@ struct Args {
     /// and hot-swaps them without interrupting official catalog traffic.
     #[arg(long, env = "TOKITO_MCP_GENERATED_SOURCE_DB")]
     generated_source_db: Option<PathBuf>,
+
+    /// Authenticated Tokito catalog control plane. When configured, the source
+    /// SQLite file is a local verified cache rather than a mounted writer DB.
+    #[arg(long, env = "TOKITO_MCP_GENERATED_CONTROL_PLANE_URL")]
+    generated_control_plane_url: Option<String>,
+
+    /// File containing the control-plane bearer; never place the token in CLI args.
+    #[arg(long, env = "TOKITO_MCP_GENERATED_CONTROL_PLANE_TOKEN_FILE")]
+    generated_control_plane_token_file: Option<PathBuf>,
 
     /// Writable path for the validated generated catalog pack.
     #[arg(long, env = "TOKITO_MCP_GENERATED_PACK_DB")]
@@ -84,13 +96,37 @@ async fn main() -> anyhow::Result<()> {
     if args.generated_source_db.is_some() != args.generated_pack_db.is_some() {
         anyhow::bail!("generated source and pack paths must be configured together");
     }
+    if args.generated_control_plane_url.is_some()
+        != args.generated_control_plane_token_file.is_some()
+    {
+        anyhow::bail!("generated control-plane URL and token file must be configured together");
+    }
+    if args.generated_control_plane_url.is_some() && args.generated_source_db.is_none() {
+        anyhow::bail!("remote generated sync requires source-cache and pack paths");
+    }
     if args.generated_source_db.is_some() && args.generated_db.is_some() {
         anyhow::bail!("configure either a generated pack or a generated source, not both");
     }
     if args.generated_refresh_seconds == 0 {
         anyhow::bail!("generated refresh interval must be non-zero");
     }
-    tracing::info!(?args.db, ?args.generated_db, ?args.generated_source_db, ?args.generated_pack_db, addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
+    tracing::info!(?args.db, ?args.generated_db, ?args.generated_source_db, ?args.generated_pack_db, remote_generated = args.generated_control_plane_url.is_some(), addr = %args.addr, cache = args.cache, "starting tokito-mcp-server");
+
+    let remote = match (
+        args.generated_control_plane_url.as_deref(),
+        args.generated_control_plane_token_file.as_deref(),
+        args.generated_source_db.as_deref(),
+    ) {
+        (Some(url), Some(token_file), Some(source)) => {
+            let token = std::fs::read_to_string(token_file)
+                .context("read generated control-plane token file")?;
+            if let Err(error) = control_plane::materialize(url, token.trim(), source).await {
+                tracing::warn!(%error, "initial generated control-plane sync failed; last-known-good pack remains eligible");
+            }
+            Some((url.to_string(), token.trim().to_string()))
+        }
+        _ => None,
+    };
 
     let mut generated_db = args.generated_db.as_deref();
     if let (Some(source), Some(pack)) = (&args.generated_source_db, &args.generated_pack_db) {
@@ -139,6 +175,12 @@ async fn main() -> anyhow::Result<()> {
             let mut fingerprint = generated_source_fingerprint(&source).ok();
             loop {
                 tokio::time::sleep(interval).await;
+                if let Some((url, token)) = &remote {
+                    if let Err(error) = control_plane::materialize(url, token, &source).await {
+                        tracing::warn!(%error, "generated control-plane refresh failed; retaining last-known-good catalog");
+                        continue;
+                    }
+                }
                 let next = match generated_source_fingerprint(&source) {
                     Ok(value) => value,
                     Err(error) => {
