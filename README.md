@@ -195,6 +195,10 @@ Alongside `symbols.sqlite`, `pack` writes:
 
 The artifact is built from CERN's [`kicad-symbols`](https://gitlab.com/kicad/libraries/kicad-symbols) repository. `pack` records the source git SHA in `meta.source_commit` and stamps it into `manifest.json` so any served artifact is fully traceable to an upstream commit.
 
+## Attribution
+
+Catalog packs redistribute symbol data derived from the official KiCad Symbol Libraries (CC-BY-SA-4.0, with the KiCad Libraries Exception for end-user designs). See [NOTICE.md](NOTICE.md) for full attribution and license details on the KiCad-derived content served in `symbols.sqlite`.
+
 ## License
 
-MIT — see [LICENSE](LICENSE). The bundled symbol artifact derives from upstream KiCad libraries and inherits their license terms.
+MIT — see [LICENSE](LICENSE). The bundled symbol artifact derives from upstream KiCad libraries and inherits their license terms; see [NOTICE.md](NOTICE.md) for attribution.
