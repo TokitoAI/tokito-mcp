@@ -55,7 +55,7 @@ COPY symbols.sqlite ./symbols.sqlite
 # supplied integrity assertion enforceable rather than decorative.
 ARG SYMBOLS_BLAKE3=""
 RUN if [ -n "$SYMBOLS_BLAKE3" ]; then \
-        printf '%s  %s\n' "$SYMBOLS_BLAKE3" symbols.sqlite | b3sum --check --strict; \
+        printf '%s  %s\n' "$SYMBOLS_BLAKE3" symbols.sqlite | b3sum --check; \
     fi
 
 # ---- runtime ----
