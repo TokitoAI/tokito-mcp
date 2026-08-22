@@ -94,7 +94,7 @@ check "GET /v1/manifest reports symbol_count >= 1000" bash -c '
     [[ "$STATUS" == "200" ]] || { echo "status $STATUS"; exit 1; }
     jq_ge ".symbol_count" 1000
     jq_ge ".lib_count" 50
-    jq_eq ".schema_version" "1"
+    jq_eq ".schema_version" "2"
 '
 
 check "GET /v1/libraries returns >= 100 libs" bash -c '
