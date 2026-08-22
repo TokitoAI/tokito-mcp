@@ -96,6 +96,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release download --repo "${{ github.repository }}" --pattern symbols.sqlite
 
+      - name: Install catalog integrity tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends b3sum
+
       - name: Build runtime image
         run: |
           catalog_blake3="$(b3sum symbols.sqlite | cut -d' ' -f1)"

@@ -218,12 +218,14 @@ fn generated_source_fingerprint(path: &std::path::Path) -> anyhow::Result<(u64, 
         path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
-    conn.query_row(
+    let (revision_count, published_at, revision_id): (i64, String, String) = conn.query_row(
         "SELECT COUNT(*), COALESCE(MAX(published_at), ''), COALESCE(MAX(revision_id), '') FROM generated_revision",
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )
-    .map_err(Into::into)
+    )?;
+    let revision_count =
+        u64::try_from(revision_count).context("generated_revision count must not be negative")?;
+    Ok((revision_count, published_at, revision_id))
 }
 
 #[cfg(test)]
