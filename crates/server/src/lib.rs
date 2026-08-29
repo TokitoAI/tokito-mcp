@@ -11,7 +11,7 @@ pub mod state;
 
 use std::time::Duration;
 
-use axum::http::{header, HeaderValue, Method};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::Router;
 use state::AppState;
 use tower::ServiceBuilder;
@@ -101,7 +101,10 @@ pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
         .merge(rest)
         .nest_service("/mcp", mcp_service)
         .layer(RequestBodyLimitLayer::new(REST_BODY_LIMIT_BYTES))
-        .layer(TimeoutLayer::new(REQUEST_TIMEOUT))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
         .layer(tower::limit::ConcurrencyLimitLayer::new(
             MAX_CONCURRENT_REQUESTS,
         ))
