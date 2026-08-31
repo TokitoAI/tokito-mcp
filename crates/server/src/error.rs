@@ -40,6 +40,11 @@ impl IntoResponse for AppError {
             AppError::Symbols(SymErr::SymbolNotFound { .. }) => {
                 (StatusCode::NOT_FOUND, "not_found")
             }
+            // The caller's `q`/`query` isn't valid FTS5 syntax (unbalanced
+            // quotes, a bad column filter, a bare boolean operator with no
+            // operand, ...) — a client mistake, not a server fault. See
+            // `tokito_symbols::search::run_match_query` (TokitoAI/tokito-mcp#106).
+            AppError::Symbols(SymErr::InvalidQuery(_)) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Symbols(SymErr::SchemaVersionMismatch { .. }) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "schema_mismatch")
             }

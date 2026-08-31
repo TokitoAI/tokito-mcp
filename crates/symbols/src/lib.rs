@@ -51,6 +51,8 @@ pub enum Error {
     },
     #[error("symbol {lib:?}:{name:?} not found")]
     SymbolNotFound { lib: String, name: String },
+    #[error("search query is not valid FTS5 syntax: {0}")]
+    InvalidQuery(String),
     #[error("extends chain exceeds depth cap of {0}")]
     ExtendsDepthExceeded(u32),
     #[error("body has unknown format tag: {0:?}")]

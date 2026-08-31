@@ -190,7 +190,15 @@ pub fn fixture_db_with_connectors() -> Connection {
         "J",
         "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)",
         "connector pin header 2-pin",
-        "Connector Generic 1x02",
+        // The *real* packed value (TokitoAI/tokito-mcp#106 review: an
+        // earlier version of this fixture used a placeholder that leaked a
+        // literal, unpadded "1x02" token into the index via this column,
+        // which let the `resolves_conn_01x02_via_all_four_issue_queries`
+        // test pass even with the padding fix deleted). This tokenizes to
+        // {"connector", "1x"} — no "1x02"/"01x02" token at all — so the
+        // "01x02" token that makes these tests pass can only come from the
+        // `name` column, which is exactly what pins the padding logic.
+        "Connector*:*_1x??_*",
         2,
         None,
         None,
@@ -202,7 +210,7 @@ pub fn fixture_db_with_connectors() -> Connection {
         "J",
         "Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)",
         "connector pin header 4-pin",
-        "Connector Generic 1x04",
+        "Connector*:*_1x??_*",
         4,
         None,
         None,
@@ -214,7 +222,7 @@ pub fn fixture_db_with_connectors() -> Connection {
         "J",
         "Generic screw terminal, single row, 01x02",
         "screw terminal",
-        "TerminalBlock Screw",
+        "TerminalBlock*:*", // real packed value
         2,
         None,
         None,
@@ -226,7 +234,7 @@ pub fn fixture_db_with_connectors() -> Connection {
         "J",
         "Barrel connector, coaxial power jack",
         "power connector barrel jack",
-        "BarrelJack",
+        "BarrelJack*", // real packed value
         3,
         None,
         None,
@@ -238,8 +246,73 @@ pub fn fixture_db_with_connectors() -> Connection {
         "JP",
         "Jumper, 2-pole, open/populate",
         "jumper open",
-        "Jumper",
+        "Jumper* TestPoint*2Pads* TestPoint*Bridge*", // real packed value
         2,
+        None,
+        None,
+    );
+
+    // TokitoAI/tokito-mcp#106 review (P2a): real symbols that index a
+    // row/column-shaped count *literally unpadded* — character LCDs and
+    // keypad/LED matrices are named this way in the wild, unlike KiCad's
+    // generic connector family. Padding "16x2" to "16x02" unconditionally
+    // would silently lose these hits, so `normalize_query` must match both
+    // forms via an OR group rather than rewriting in place.
+    conn.execute("INSERT INTO lib(name) VALUES('Display_Character')", [])
+        .unwrap();
+    let display_char_id: i64 = conn.last_insert_rowid();
+    conn.execute("INSERT INTO lib(name) VALUES('Switch')", [])
+        .unwrap();
+    let switch_id: i64 = conn.last_insert_rowid();
+    conn.execute("INSERT INTO lib(name) VALUES('Display_LED')", [])
+        .unwrap();
+    let display_led_id: i64 = conn.last_insert_rowid();
+
+    insert_symbol(
+        &conn,
+        display_char_id,
+        "HD44780_16x2",
+        "U",
+        "16x2 character LCD display module, HD44780 controller",
+        "lcd display 16x2 character",
+        "LCD*16x2*",
+        16,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        display_char_id,
+        "HD44780_20x4",
+        "U",
+        "20x4 character LCD display module, HD44780 controller",
+        "lcd display 20x4 character",
+        "LCD*20x4*",
+        18,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        switch_id,
+        "Keypad_4x4",
+        "SW",
+        "4x4 matrix keypad, 16 keys",
+        "keypad matrix 4x4",
+        "Keypad*4x4*",
+        8,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        display_led_id,
+        "LED_Matrix_8x8",
+        "DS",
+        "8x8 LED dot matrix display, common cathode",
+        "led matrix display 8x8",
+        "LED*Matrix*8x8*",
+        16,
         None,
         None,
     );

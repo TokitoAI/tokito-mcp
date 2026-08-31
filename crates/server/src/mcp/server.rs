@@ -539,6 +539,11 @@ fn map_sym(e: tokito_symbols::Error) -> McpError {
         tokito_symbols::Error::SymbolNotFound { .. } => {
             McpError::new(ErrorCode::INVALID_PARAMS, e.to_string(), None)
         }
+        // Client-safe: the caller's `query` isn't valid FTS5 syntax — a
+        // client mistake, not a server fault (TokitoAI/tokito-mcp#106).
+        tokito_symbols::Error::InvalidQuery(_) => {
+            McpError::new(ErrorCode::INVALID_PARAMS, e.to_string(), None)
+        }
         // Everything else can carry raw rusqlite/postcard detail — don't leak it.
         _ => internal("symbol lookup", &e),
     }

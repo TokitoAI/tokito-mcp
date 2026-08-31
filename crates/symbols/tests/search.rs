@@ -235,6 +235,100 @@ fn find_compatible_also_benefits_from_query_normalization() {
     assert!(hit_names(&hits).contains(&"Connector_Generic:Conn_01x02".to_string()));
 }
 
+// --- TokitoAI/tokito-mcp#106 review (P2a): padding must not lose literal
+// unpadded hits ---
+//
+// Character LCDs, keypad matrices, and LED matrices are real symbols named
+// with a row/column-shaped count that KiCad does *not* zero-pad — unlike
+// the generic connector family. Padding "16x2" to "16x02" unconditionally
+// would silently return zero hits for all of these; `normalize_query` must
+// match both the as-typed and padded forms.
+
+#[test]
+fn padding_does_not_lose_literal_unpadded_lcd_and_matrix_hits() {
+    let conn = common::fixture_db_with_connectors();
+    let cases = [
+        ("16x2", "Display_Character:HD44780_16x2"),
+        ("20x4", "Display_Character:HD44780_20x4"),
+        ("4x4", "Switch:Keypad_4x4"),
+        ("8x8", "Display_LED:LED_Matrix_8x8"),
+    ];
+    for (query, expected) in cases {
+        let hits = search::search(
+            &conn,
+            search::SearchOpts {
+                query,
+                limit: 10,
+                lib_filter: None,
+            },
+        )
+        .unwrap();
+        let names = hit_names(&hits);
+        assert!(
+            names.contains(&expected.to_string()),
+            "query {query:?} should still resolve {expected}, got {names:?}"
+        );
+    }
+}
+
+#[test]
+fn padding_still_resolves_the_padded_connector_form_alongside_literal_hits() {
+    // Both fixture families coexist in the same catalog; padding one must
+    // not come at the expense of the other.
+    let conn = common::fixture_db_with_connectors();
+    let hits = search::search(
+        &conn,
+        search::SearchOpts {
+            query: "1x02",
+            limit: 10,
+            lib_filter: None,
+        },
+    )
+    .unwrap();
+    assert!(hit_names(&hits).contains(&"Connector_Generic:Conn_01x02".to_string()));
+}
+
+// --- TokitoAI/tokito-mcp#106 review (P1): hostile-input hardening ---
+//
+// None of these may return an `Err` from `search::search` at all other than
+// `Error::InvalidQuery` — no panics, no generic SQL failures that would
+// surface as a 500 through the REST/MCP layer (see
+// `crates/server/tests/search_hostile_input.rs` for the HTTP-status-level
+// version of this same probe table).
+
+#[test]
+fn hostile_queries_never_produce_an_unclassified_sql_error() {
+    let conn = common::fixture_db_with_connectors();
+    let probes = [
+        "fp_filters:Connector*",
+        "_",
+        "__",
+        "AND_gate",
+        "OR_gate",
+        "NOT_gate",
+        "he\"llo",
+        "unterminated \"quote",
+        "(pin OR header)",
+        "NEAR(pin header)",
+        "コネクタ",
+    ];
+    for query in probes {
+        let result = search::search(
+            &conn,
+            search::SearchOpts {
+                query,
+                limit: 10,
+                lib_filter: None,
+            },
+        );
+        match result {
+            Ok(_) => {}
+            Err(tokito_symbols::Error::InvalidQuery(_)) => {}
+            Err(other) => panic!("query {query:?} produced an unclassified error: {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn list_libraries_returns_expected_counts() {
     let conn = common::fixture_db();

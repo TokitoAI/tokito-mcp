@@ -46,20 +46,47 @@ pub fn search(conn: &Connection, opts: SearchOpts<'_>) -> Result<Vec<SymbolRef>>
         (false, None) => SQL_OFFICIAL_ANY_LIB,
     };
     let mut stmt = conn.prepare_cached(sql)?;
-    let rows: Vec<SymbolRef> = if let Some(lib) = opts.lib_filter {
-        stmt.query_map(rusqlite::params![query, lib, opts.limit], row_to_ref)?
-            .collect::<std::result::Result<_, _>>()?
+    if let Some(lib) = opts.lib_filter {
+        run_match_query(&mut stmt, rusqlite::params![query, lib, opts.limit])
     } else {
-        stmt.query_map(rusqlite::params![query, opts.limit], row_to_ref)?
-            .collect::<std::result::Result<_, _>>()?
-    };
-    Ok(rows)
+        run_match_query(&mut stmt, rusqlite::params![query, opts.limit])
+    }
+}
+
+/// Executes a prepared `... MATCH ?1 ...` statement and collects the rows.
+/// The SQL text at every call site is a fixed, trusted template — the only
+/// caller-controlled input is the `MATCH` argument bound into it — so any
+/// `rusqlite::Error` surfacing here is FTS5 rejecting that argument's
+/// syntax (unbalanced quotes, a bad column filter, a bare `AND`/`OR`/`NOT`
+/// with no operand, ...), not an internal fault. Map it to
+/// [`Error::InvalidQuery`] so the REST/MCP layer can return 400 instead of
+/// a generic 500 (TokitoAI/tokito-mcp#106 review).
+fn run_match_query<P: rusqlite::Params>(
+    stmt: &mut rusqlite::Statement<'_>,
+    params: P,
+) -> Result<Vec<SymbolRef>> {
+    stmt.query_map(params, row_to_ref)
+        .and_then(|rows| rows.collect::<std::result::Result<Vec<_>, _>>())
+        .map_err(|e| crate::Error::InvalidQuery(e.to_string()))
 }
 
 /// Reshapes a raw user query into one that means what the caller intended
-/// once it reaches FTS5 `MATCH`. Two independent fixes, both from
-/// TokitoAI/tokito-mcp#105:
+/// once it reaches FTS5 `MATCH`. Runs ahead of every FTS5 `MATCH`, so
+/// `search_symbols`, `find_compatible`, and the REST `/v1/search` face all
+/// benefit — and are all equally exposed if this rewrite ever produces
+/// something FTS5 can't parse, which is why bullet 0 below exists.
 ///
+/// 0. **Syntax passthrough (TokitoAI/tokito-mcp#106 review).** A query that
+///    already carries FTS5 query-grammar markers — a column filter
+///    (`fp_filters:Connector*`), a quoted phrase, `(`/`)` grouping (also
+///    used by `NEAR(...)`), a prefix wildcard (`*`), or a standalone
+///    `AND`/`OR`/`NOT`/`NEAR` operator token — is passed through completely
+///    unmodified. Two reasons: rewriting risks turning a well-formed query
+///    into a malformed one (desugaring `AND_gate` below would resurrect
+///    `AND` as a real operator with no left operand; desugaring
+///    `fp_filters:Connector*` would split the column name into a bareword
+///    `fp` plus a bogus `filters:` reference), and a caller who already
+///    knows FTS5 syntax should get exactly their pre-#105 behavior back.
 /// 1. **Underscore desugaring.** FTS5's query grammar treats a
 ///    punctuation-free run of characters (a "bareword") as a single term —
 ///    but if *tokenizing* that bareword produces more than one token (which
@@ -69,50 +96,92 @@ pub fn search(conn: &Connection, opts: SearchOpts<'_>) -> Result<Vec<SymbolRef>>
 ///    A copy-pasted symbol-style query like `Pin_Header_1x02` becomes the
 ///    phrase `pin` → `header` → `1x02`, which can never match a row whose
 ///    "pin header" synonym lives in `keywords` and whose `01x02` lives in
-///    `name` — different columns can't be phrase-adjacent. Replacing `_`
-///    with a space before the query reaches FTS5 turns that into three
-///    independent barewords, which the grammar ANDs together instead —
-///    exactly what a name-shaped query is supposed to mean.
-/// 2. **Row/column zero-padding.** KiCad's generic connector families name
-///    pin counts with zero-padded two-digit numbers joined by `x`
-///    (`Conn_01x02`, `Screw_Terminal_02x05`), but people type the count
+///    `name` — different columns can't be phrase-adjacent. Splitting on `_`
+///    and joining the pieces with explicit `AND` instead turns that into
+///    three independent terms — exactly what a name-shaped query is
+///    supposed to mean. (Terms are joined with an explicit `AND` rather
+///    than left space-separated because bullet 2 below can turn a term into
+///    a parenthesized `(a OR b)` group, and FTS5's grammar rejects bare
+///    juxtaposition — `foo (a OR b) bar` — next to a group; only `foo AND
+///    (a OR b) AND bar` parses.)
+/// 2. **Row/column padding, both forms.** KiCad's generic connector
+///    families name pin counts with zero-padded two-digit numbers joined by
+///    `x` (`Conn_01x02`, `Screw_Terminal_02x05`), but people type the count
 ///    without the padding (`1x02`, `2x5`). FTS5 `MATCH` is exact token
 ///    equality, not prefix or fuzzy matching, so an unpadded query token
-///    never lines up with the indexed `01x02` token. Scan for `<1-2
-///    digits>x<1-2 digits>` runs bounded by non-alphanumeric characters (or
-///    the string edges) and zero-pad each side to width 2, leaving the rest
-///    of the query untouched.
-///
-/// Runs ahead of every FTS5 `MATCH`, so `search_symbols`, `find_compatible`,
-/// and the REST `/v1/search` face all benefit uniformly.
+///    never lines up with the indexed `01x02` token. But plenty of *other*
+///    real symbols index the count literally unpadded — character LCDs
+///    (`16x2`, `20x4`), keypad and LED matrices (`4x4`, `8x8`) — so
+///    unconditionally padding would silently lose those hits (review
+///    finding on the original #105 fix). A whole term shaped like `<1-2
+///    digits>x<1-2 digits>` is therefore rewritten to match *both* forms:
+///    `1x02` becomes `(1x02 OR 01x02)`. When the term is already padded
+///    (`01x02`), both forms are identical and it passes through unchanged.
 pub(crate) fn normalize_query(query: &str) -> String {
-    normalize_row_col_tokens(&query.replace('_', " "))
+    if has_fts5_syntax(query) {
+        return query.to_string();
+    }
+    let terms: Vec<String> = query
+        .replace('_', " ")
+        .split_whitespace()
+        .map(normalize_term)
+        .collect();
+    if terms.is_empty() {
+        // Desugaring can strip an already-degenerate query (e.g. a lone
+        // `_`, which `unicode61` tokenizes to nothing) down to pure
+        // whitespace. FTS5's grammar rejects an empty `MATCH` argument
+        // outright — but happily accepts the original underscore-only text
+        // as a zero-token query, so fall back to that rather than sending
+        // FTS5 something that can never parse.
+        return query.to_string();
+    }
+    terms.join(" AND ")
 }
 
-fn normalize_row_col_tokens(query: &str) -> String {
-    let chars: Vec<char> = query.chars().collect();
-    let mut out = String::with_capacity(query.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let boundary_ok = i == 0 || !chars[i - 1].is_alphanumeric();
-        if boundary_ok {
-            if let Some((padded, consumed)) = match_row_col(&chars[i..]) {
-                out.push_str(&padded);
-                i += consumed;
-                continue;
-            }
-        }
-        out.push(chars[i]);
-        i += 1;
+/// True when `query` contains an FTS5 query-grammar marker: a column-filter
+/// colon, a quote, parens (also covers `NEAR(...)`), a prefix-wildcard
+/// `*`, or a standalone `AND`/`OR`/`NOT`/`NEAR` operator token (checked
+/// case-sensitively and word-bounded — FTS5 only recognizes these as
+/// operators in exactly that form, per the grammar; splitting on any
+/// non-alphanumeric character also catches an operator hiding behind an
+/// underscore, e.g. `AND_gate`, since desugaring would otherwise resurrect
+/// it as a real operator).
+fn has_fts5_syntax(query: &str) -> bool {
+    if query.contains([':', '"', '(', ')', '*']) {
+        return true;
     }
-    out
+    query
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|word| matches!(word, "AND" | "OR" | "NOT" | "NEAR"))
+}
+
+/// Normalizes one whitespace-delimited term. A term shaped exactly like a
+/// KiCad row/column count (`<1-2 digits>x<1-2 digits>`, matched in full —
+/// not as a substring, so `R1x02` and `100x200` pass through untouched) is
+/// rewritten to an FTS5 OR-group matching both the as-typed and the
+/// zero-padded form; anything else is returned unchanged.
+fn normalize_term(term: &str) -> String {
+    match padded_row_col(term) {
+        Some(padded) if padded != term => format!("({term} OR {padded})"),
+        _ => term.to_string(),
+    }
+}
+
+/// Parses `term` as a whole `<1-2 digits>x<1-2 digits>` row/column token and
+/// returns its zero-padded form, or `None` if `term` isn't shaped like one —
+/// extra characters before/after the digits, or a digit run longer than 2
+/// (KiCad's row/column counts never exceed two digits, so e.g. `100x200` or
+/// `1x100` is some other kind of numeric token — a part number, a
+/// voltage — not a pin count, and must pass through untouched).
+fn padded_row_col(term: &str) -> Option<String> {
+    let chars: Vec<char> = term.chars().collect();
+    let (padded, consumed) = match_row_col(&chars)?;
+    (consumed == chars.len()).then_some(padded)
 }
 
 /// Tries to parse a `<digits>x<digits>` run at the start of `chars`. Returns
 /// the zero-padded replacement and how many source chars it consumed.
-/// Digit runs are capped at 2 on each side — KiCad's row/column counts never
-/// exceed two digits, so a longer run (or a trailing digit after the second
-/// group) means this isn't the pattern we're after and we bail out.
+/// Digit runs are capped at 2 on each side — see [`padded_row_col`].
 fn match_row_col(chars: &[char]) -> Option<(String, usize)> {
     let mut idx = 0;
     while idx < chars.len() && idx < 2 && chars[idx].is_ascii_digit() {
@@ -142,38 +211,21 @@ fn match_row_col(chars: &[char]) -> Option<(String, usize)> {
 
 #[cfg(test)]
 mod normalize_tests {
-    use super::{normalize_query, normalize_row_col_tokens};
+    use super::{has_fts5_syntax, normalize_query, padded_row_col};
+
+    // --- padded_row_col: the row/col pattern matcher ---
 
     #[test]
-    fn pads_bare_row_col_query() {
-        assert_eq!(normalize_row_col_tokens("1x02"), "01x02");
-        assert_eq!(normalize_row_col_tokens("1x2"), "01x02");
-        assert_eq!(normalize_row_col_tokens("01x2"), "01x02");
-        assert_eq!(normalize_row_col_tokens("2x5"), "02x05");
+    fn pads_bare_row_col_term() {
+        assert_eq!(padded_row_col("1x02").as_deref(), Some("01x02"));
+        assert_eq!(padded_row_col("1x2").as_deref(), Some("01x02"));
+        assert_eq!(padded_row_col("01x2").as_deref(), Some("01x02"));
+        assert_eq!(padded_row_col("2x5").as_deref(), Some("02x05"));
     }
 
     #[test]
-    fn pads_inside_a_longer_query() {
-        assert_eq!(
-            normalize_row_col_tokens("Pin_Header_1x02"),
-            "Pin_Header_01x02"
-        );
-        assert_eq!(
-            normalize_row_col_tokens("header 2x5 jumper"),
-            "header 02x05 jumper"
-        );
-    }
-
-    #[test]
-    fn already_padded_is_unchanged() {
-        assert_eq!(normalize_row_col_tokens("Conn_01x02"), "Conn_01x02");
-    }
-
-    #[test]
-    fn leaves_unrelated_queries_alone() {
-        assert_eq!(normalize_row_col_tokens("resistor"), "resistor");
-        assert_eq!(normalize_row_col_tokens("i2c"), "i2c");
-        assert_eq!(normalize_row_col_tokens("STM32F4"), "STM32F4");
+    fn already_padded_round_trips() {
+        assert_eq!(padded_row_col("01x02").as_deref(), Some("01x02"));
     }
 
     #[test]
@@ -181,29 +233,135 @@ mod normalize_tests {
         // Not a row/col pattern — a 3rd digit on either side means this is
         // some other numeric token (part number, voltage, etc), not a pin
         // count, so it must pass through untouched.
-        assert_eq!(normalize_row_col_tokens("100x200"), "100x200");
-        assert_eq!(normalize_row_col_tokens("1x100"), "1x100");
+        assert_eq!(padded_row_col("100x200"), None);
+        assert_eq!(padded_row_col("1x100"), None);
     }
 
     #[test]
-    fn normalize_query_desugars_underscores_to_spaces() {
-        // `Pin_Header_1x02` must become independent AND'd barewords, not an
+    fn must_match_the_whole_term() {
+        // "R1x02" — glued to a letter, not a standalone row/col term — is
+        // left alone rather than guessed at.
+        assert_eq!(padded_row_col("R1x02"), None);
+        assert_eq!(padded_row_col("resistor"), None);
+    }
+
+    // --- has_fts5_syntax: the passthrough detector ---
+
+    #[test]
+    fn detects_syntax_markers() {
+        for q in [
+            "fp_filters:Connector*",
+            "he\"llo",
+            "(pin OR header)",
+            "NEAR(pin header)",
+            "1x02*",
+        ] {
+            assert!(
+                has_fts5_syntax(q),
+                "{q:?} should be detected as FTS5 syntax"
+            );
+        }
+    }
+
+    #[test]
+    fn detects_standalone_boolean_operators_even_behind_an_underscore() {
+        for q in [
+            "AND_gate",
+            "OR_gate",
+            "NOT_gate",
+            "foo AND bar",
+            "NEAR thing",
+        ] {
+            assert!(
+                has_fts5_syntax(q),
+                "{q:?} should be detected as FTS5 syntax"
+            );
+        }
+    }
+
+    #[test]
+    fn plain_queries_are_not_flagged_as_syntax() {
+        for q in [
+            "resistor",
+            "1x02",
+            "Pin_Header_1x02",
+            "header 2 pin",
+            "_",
+            "__",
+        ] {
+            assert!(!has_fts5_syntax(q), "{q:?} should not be flagged");
+        }
+    }
+
+    // --- normalize_query: the full pipeline ---
+
+    #[test]
+    fn desugars_underscores_and_and_joins() {
+        // `Pin_Header_1x02` must become independent AND'd terms, not an
         // implicit phrase FTS5 can never satisfy across columns.
-        assert_eq!(normalize_query("Pin_Header_1x02"), "Pin Header 01x02");
-        assert_eq!(normalize_query("Conn_01x02"), "Conn 01x02");
+        assert_eq!(
+            normalize_query("Pin_Header_1x02"),
+            "Pin AND Header AND (1x02 OR 01x02)"
+        );
+        assert_eq!(normalize_query("Conn_01x02"), "Conn AND 01x02");
     }
 
     #[test]
-    fn normalize_query_composes_both_fixes() {
-        assert_eq!(normalize_query("header 2 pin"), "header 2 pin");
-        assert_eq!(normalize_query("1x02"), "01x02");
+    fn pads_both_forms_via_or_group() {
+        assert_eq!(normalize_query("1x02"), "(1x02 OR 01x02)");
+        assert_eq!(
+            normalize_query("header 2x5 jumper"),
+            "header AND (2x5 OR 02x05) AND jumper"
+        );
     }
 
     #[test]
-    fn boundary_must_be_non_alphanumeric() {
-        // "R1x02" — the digit run doesn't start at a word boundary (it's
-        // glued to a letter), so this is left alone rather than guessed at.
-        assert_eq!(normalize_row_col_tokens("R1x02"), "R1x02");
+    fn already_padded_query_has_no_or_group() {
+        assert_eq!(
+            normalize_query("header 01x02 jumper"),
+            "header AND 01x02 AND jumper"
+        );
+    }
+
+    // --- TokitoAI/tokito-mcp#106 review: hostile-input hardening ---
+    //
+    // Every query below must come back from `normalize_query` still valid
+    // FTS5 syntax — a query that already means something in FTS5 grammar
+    // must be passed straight through unmodified (bullet 0 of the doc
+    // comment), never rewritten into something FTS5 can't parse.
+
+    #[test]
+    fn syntax_bearing_queries_pass_through_unmodified() {
+        for q in [
+            "fp_filters:Connector*",
+            "AND_gate",
+            "OR_gate",
+            "NOT_gate",
+            "he\"llo",
+            "unterminated \"quote",
+            "(pin OR header)",
+            "NEAR(pin header)",
+        ] {
+            assert_eq!(normalize_query(q), q, "{q:?} must be passed through as-is");
+        }
+    }
+
+    #[test]
+    fn underscore_only_query_falls_back_to_the_original_text() {
+        // Desugaring "_" alone collapses to pure whitespace, which FTS5's
+        // grammar rejects outright — but the original text, sent unmodified,
+        // is a query FTS5 happily parses as zero tokens (0 rows, no error).
+        // The empty-after-normalization check must catch this and fall back
+        // rather than forwarding whitespace.
+        assert_eq!(normalize_query("_"), "_");
+        assert_eq!(normalize_query("__"), "__");
+    }
+
+    #[test]
+    fn unicode_query_is_not_flagged_as_syntax_and_survives_normalization() {
+        let q = "コネクタ";
+        assert!(!has_fts5_syntax(q));
+        assert_eq!(normalize_query(q), q);
     }
 }
 
@@ -345,10 +503,17 @@ pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Ve
 
     let mut stmt = conn.prepare(&sql)?;
     let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    let rows = stmt
-        .query_map(rusqlite::params_from_iter(param_refs), row_to_ref)?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    Ok(rows)
+    let query_map_result = stmt
+        .query_map(rusqlite::params_from_iter(param_refs), row_to_ref)
+        .and_then(|rows| rows.collect::<std::result::Result<Vec<_>, _>>());
+    // Only the `query.is_some()` branch touches `symbol_fts MATCH`, so only
+    // that branch's failures are (potentially) FTS5 rejecting caller syntax
+    // rather than an internal fault — see `run_match_query`'s doc comment.
+    if opts.query.is_some() {
+        query_map_result.map_err(|e| crate::Error::InvalidQuery(e.to_string()))
+    } else {
+        Ok(query_map_result?)
+    }
 }
 
 /// Escape SQL `LIKE` metacharacters so a user-supplied substring matches
