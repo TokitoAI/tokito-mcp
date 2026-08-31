@@ -35,6 +35,44 @@ pub fn fixture_app_state() -> AppState {
     }
 }
 
+/// Same as [`fixture_app_state`] but `Device:R`'s `description` column has
+/// been corrupted to a raw BLOB instead of TEXT. SQLite's per-value (not
+/// per-column) typing lets a BLOB literal through a TEXT-affinity column
+/// untouched, so the row still inserts fine and FTS5 still indexes/matches
+/// it — but decoding that column as a `String` in `row_to_ref` fails with
+/// `rusqlite::Error::InvalidColumnType`, a real catalog-corruption case
+/// distinct from a malformed caller query.
+///
+/// TokitoAI/tokito-mcp#106 review, round 2: an earlier version of
+/// `run_match_query`'s error mapping treated every error from that call
+/// site identically, so this exact failure surfaced as a 400
+/// `InvalidQuery` — with the raw `InvalidColumnType` detail leaked to the
+/// client and no server-side log — instead of the 500 an internal fault
+/// should get.
+#[allow(dead_code)]
+pub fn fixture_app_state_with_corrupt_description() -> AppState {
+    let conn = build_fixture_conn();
+    conn.execute(
+        "UPDATE symbol SET description = X'0011223344' WHERE name = 'R'",
+        [],
+    )
+    .unwrap();
+    let manifest = Manifest {
+        source_commit: "test-fixture-corrupt".into(),
+        generator_version: "0.0.0".into(),
+        schema_version: CURRENT_SCHEMA_VERSION,
+        symbol_count: 3,
+        lib_count: 2,
+        generated_at: None,
+    };
+    AppState {
+        conn: Arc::new(Mutex::new(conn)),
+        generated_conn: Arc::new(std::sync::RwLock::new(None)),
+        resolver: Resolver::new(64),
+        manifest: Arc::new(manifest),
+    }
+}
+
 /// Same as [`fixture_app_state`] but with one published generated symbol
 /// seeded so tests can exercise the resolve_by_mpn + provenance surfaces.
 ///

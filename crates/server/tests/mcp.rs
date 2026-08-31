@@ -361,3 +361,33 @@ async fn get_symbol_with_unknown_returns_tool_error() {
         "expected JSON-RPC error: got {msg}"
     );
 }
+
+/// TokitoAI/tokito-mcp#106 review, round 2: the REST face already had
+/// coverage for a malformed FTS5 query returning a client-safe 400 — the
+/// MCP face shares the exact same `tokito_symbols::search::search` call and
+/// `map_sym` classification, but had no test of its own.
+#[tokio::test]
+async fn search_symbols_tool_rejects_malformed_query_with_invalid_params() {
+    let app = build_app(common::fixture_app_state());
+    let sid = open_session_on(&app).await;
+    let msg = call_tool(
+        &app,
+        &sid,
+        2,
+        "search_symbols",
+        json!({"query": "he\"llo", "limit": 5}),
+    )
+    .await;
+    assert!(
+        msg.get("error").is_some(),
+        "expected JSON-RPC error for malformed FTS5 query: got {msg}"
+    );
+    // -32602 is JSON-RPC 2.0's standard "Invalid params" code — what
+    // `ErrorCode::INVALID_PARAMS` serializes to.
+    assert_eq!(msg["error"]["code"], -32602);
+    assert_eq!(
+        msg["error"]["message"],
+        tokito_symbols::INVALID_QUERY_CLIENT_MESSAGE,
+        "must not leak the raw rusqlite/FTS5 detail to the client: {msg}"
+    );
+}

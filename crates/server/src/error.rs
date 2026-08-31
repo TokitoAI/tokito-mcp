@@ -40,6 +40,11 @@ impl IntoResponse for AppError {
             AppError::Symbols(SymErr::SymbolNotFound { .. }) => {
                 (StatusCode::NOT_FOUND, "not_found")
             }
+            // The caller's `q`/`query` isn't valid FTS5 syntax (unbalanced
+            // quotes, a bad column filter, a bare boolean operator with no
+            // operand, ...) — a client mistake, not a server fault. See
+            // `tokito_symbols::search::run_match_query` (TokitoAI/tokito-mcp#106).
+            AppError::Symbols(SymErr::InvalidQuery(_)) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Symbols(SymErr::SchemaVersionMismatch { .. }) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "schema_mismatch")
             }
@@ -62,6 +67,12 @@ impl IntoResponse for AppError {
         let message = if status == StatusCode::INTERNAL_SERVER_ERROR {
             tracing::error!(%code, detail = %self, "internal error");
             "internal server error".to_string()
+        } else if matches!(self, AppError::Symbols(SymErr::InvalidQuery(_))) {
+            // `InvalidQuery`'s own `Display` embeds the raw rusqlite/FTS5
+            // detail (fine for the `detail = %self` internal-error log path
+            // above, not fine for a client response) — use the fixed,
+            // client-safe message instead.
+            tokito_symbols::INVALID_QUERY_CLIENT_MESSAGE.to_string()
         } else {
             self.to_string()
         };
