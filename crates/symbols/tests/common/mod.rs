@@ -163,6 +163,90 @@ pub fn fixture_db() -> Connection {
     conn
 }
 
+/// `fixture_db()` plus the TokitoAI/tokito-mcp#105 generic-connector /
+/// pin-header regression fixtures, kept in a separate builder so the many
+/// other tests sharing `fixture_db()` don't have to account for extra libs,
+/// symbols, and pin counts they never asked for.
+///
+/// Keywords mirror exactly what `tokito_mcp_pack::emit::enrich_keywords`
+/// produces for these symbols at pack time (see `crates/pack/src/emit.rs`),
+/// so these tests exercise the search-layer normalization in isolation from
+/// the packer (which has its own unit tests for the enrichment itself).
+#[allow(dead_code)]
+pub fn fixture_db_with_connectors() -> Connection {
+    let conn = fixture_db();
+
+    conn.execute("INSERT INTO lib(name) VALUES('Connector_Generic')", [])
+        .unwrap();
+    let conn_generic_id: i64 = conn.last_insert_rowid();
+    conn.execute("INSERT INTO lib(name) VALUES('Connector')", [])
+        .unwrap();
+    let connector_id: i64 = conn.last_insert_rowid();
+
+    insert_symbol(
+        &conn,
+        conn_generic_id,
+        "Conn_01x02",
+        "J",
+        "Generic connector, single row, 01x02, script generated (kicad-library-utils/schlib/autogen/connector/)",
+        "connector pin header 2-pin",
+        "Connector Generic 1x02",
+        2,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        conn_generic_id,
+        "Conn_01x04",
+        "J",
+        "Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)",
+        "connector pin header 4-pin",
+        "Connector Generic 1x04",
+        4,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        connector_id,
+        "Screw_Terminal_01x02",
+        "J",
+        "Generic screw terminal, single row, 01x02",
+        "screw terminal",
+        "TerminalBlock Screw",
+        2,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        connector_id,
+        "Barrel_Jack",
+        "J",
+        "Barrel connector, coaxial power jack",
+        "power connector barrel jack",
+        "BarrelJack",
+        3,
+        None,
+        None,
+    );
+    insert_symbol(
+        &conn,
+        connector_id,
+        "Jumper_2_Open",
+        "JP",
+        "Jumper, 2-pole, open/populate",
+        "jumper open",
+        "Jumper",
+        2,
+        None,
+        None,
+    );
+
+    conn
+}
+
 /// Insert a published generated-symbol revision into the fixture DB.
 ///
 /// Uses the crate's own `generated::insert_revision` so the code path is the
