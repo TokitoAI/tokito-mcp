@@ -55,19 +55,70 @@ pub fn search(conn: &Connection, opts: SearchOpts<'_>) -> Result<Vec<SymbolRef>>
 
 /// Executes a prepared `... MATCH ?1 ...` statement and collects the rows.
 /// The SQL text at every call site is a fixed, trusted template — the only
-/// caller-controlled input is the `MATCH` argument bound into it — so any
-/// `rusqlite::Error` surfacing here is FTS5 rejecting that argument's
-/// syntax (unbalanced quotes, a bad column filter, a bare `AND`/`OR`/`NOT`
-/// with no operand, ...), not an internal fault. Map it to
-/// [`Error::InvalidQuery`] so the REST/MCP layer can return 400 instead of
-/// a generic 500 (TokitoAI/tokito-mcp#106 review).
+/// caller-controlled input is the `MATCH` argument bound into it — but the
+/// *rows* it reads back are not equally trusted: a corrupt catalog can fail
+/// to decode a column just as easily on a query that happens to hit FTS5 as
+/// on one that doesn't. So only a `rusqlite::Error` that is specifically
+/// FTS5/SQLite rejecting the query's *syntax* becomes
+/// [`Error::InvalidQuery`] (→ 400); everything else — a row-decode failure,
+/// corruption, I/O, whatever — stays a generic internal fault (→ 500), the
+/// same as it would for a query that never touched `MATCH` at all. See
+/// [`is_query_syntax_error`] (TokitoAI/tokito-mcp#106 review, round 2: an
+/// earlier version of this function mapped *every* error from this call —
+/// including row-decode failures on a corrupt `description` blob — to
+/// `InvalidQuery`, which both hid the internal fault from the server log
+/// and leaked the raw rusqlite message to the client).
 fn run_match_query<P: rusqlite::Params>(
     stmt: &mut rusqlite::Statement<'_>,
     params: P,
 ) -> Result<Vec<SymbolRef>> {
     stmt.query_map(params, row_to_ref)
         .and_then(|rows| rows.collect::<std::result::Result<Vec<_>, _>>())
-        .map_err(|e| crate::Error::InvalidQuery(e.to_string()))
+        .map_err(query_error)
+}
+
+/// Classifies an error from executing a `MATCH` statement: a query-syntax
+/// problem becomes [`Error::InvalidQuery`], anything else passes through as
+/// [`Error::Sql`] unchanged (so it gets the usual 500 treatment upstream).
+fn query_error(e: rusqlite::Error) -> crate::Error {
+    if is_query_syntax_error(&e) {
+        crate::Error::InvalidQuery(e.to_string())
+    } else {
+        crate::Error::Sql(e)
+    }
+}
+
+/// True when `e` is FTS5/SQLite rejecting a `MATCH` argument's syntax (a bad
+/// column filter, unbalanced quotes, a bare `AND`/`OR`/`NOT` with no
+/// operand, ...) — narrowly, by primary SQLite result code, not by message
+/// text (version-dependent and free-form) or by "any error from this call
+/// site" (too broad — see the doc comment on [`run_match_query`]).
+///
+/// SQLite reports every one of these as a generic `SQLITE_ERROR`, which
+/// rusqlite classifies as `ErrorCode::Unknown` (it has no dedicated variant
+/// for "generic error" — every *other* primary result code SQLite defines
+/// gets its own named `ErrorCode`). Checking the enum variant is therefore
+/// enough to exclude, structurally, the failure modes this must never
+/// swallow:
+///   - `rusqlite::Error::FromSqlConversionFailure` /
+///     `InvalidColumnType` / `InvalidColumnIndex` / `Utf8Error` — row-decode
+///     failures. These aren't even `SqliteFailure`, so the outer `matches!`
+///     already excludes them regardless of `ErrorCode`.
+///   - `SqliteFailure` with `ErrorCode::DatabaseCorrupt` / `SystemIoFailure`
+///     / `DatabaseBusy` / `NotADatabase` (SQLite's `CORRUPT`/`IOERR`/`BUSY`/
+///     `NOTADB`) — each has its own dedicated `ErrorCode` variant distinct
+///     from `Unknown`, so these fall through to `Error::Sql` (500) too.
+fn is_query_syntax_error(e: &rusqlite::Error) -> bool {
+    matches!(
+        e,
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ErrorCode::Unknown,
+                ..
+            },
+            _,
+        )
+    )
 }
 
 /// Reshapes a raw user query into one that means what the caller intended
@@ -365,6 +416,91 @@ mod normalize_tests {
     }
 }
 
+// TokitoAI/tokito-mcp#106 review, round 2: `is_query_syntax_error` /
+// `query_error` must classify a genuine FTS5 query-syntax rejection as
+// `Error::InvalidQuery` (→ 400) but leave every other kind of
+// `rusqlite::Error` — row-decode failures in particular — as `Error::Sql`
+// (→ 500), never the other way around. `run_match_query`'s doc comment
+// explains why: an earlier version mapped *every* error from that call
+// site to `InvalidQuery`, which turned a corrupt catalog into a
+// misleading 400 with a leaked raw rusqlite message and no server log.
+#[cfg(test)]
+mod query_error_tests {
+    use super::{is_query_syntax_error, query_error};
+    use rusqlite::{ffi, Error as SqlError, ErrorCode};
+
+    /// Behind a function call so the `invalid_from_utf8` lint doesn't flag
+    /// the (deliberately) invalid literal at the `from_utf8` call site.
+    fn invalid_utf8_bytes() -> Vec<u8> {
+        vec![0xff]
+    }
+
+    fn sqlite_failure(code: ErrorCode) -> SqlError {
+        SqlError::SqliteFailure(
+            ffi::Error {
+                code,
+                extended_code: 1,
+            },
+            Some("synthetic".to_string()),
+        )
+    }
+
+    #[test]
+    fn generic_sqlite_error_is_a_query_syntax_error() {
+        // What FTS5 actually reports for every syntax rejection: unbalanced
+        // quotes, a bad column filter, a bare boolean operator, ... — no
+        // dedicated SQLite result code, so rusqlite classifies it Unknown.
+        let e = sqlite_failure(ErrorCode::Unknown);
+        assert!(is_query_syntax_error(&e));
+        assert!(matches!(query_error(e), crate::Error::InvalidQuery(_)));
+    }
+
+    #[test]
+    fn row_decode_failures_are_never_query_syntax_errors() {
+        // None of these are even `SqliteFailure` — a corrupt catalog fails
+        // to decode a column, which is nothing FTS5's query grammar had any
+        // say in.
+        let cases = [
+            SqlError::FromSqlConversionFailure(0, rusqlite::types::Type::Blob, "synthetic".into()),
+            SqlError::InvalidColumnType(3, "description".into(), rusqlite::types::Type::Blob),
+            SqlError::InvalidColumnIndex(3),
+            SqlError::Utf8Error(3, std::str::from_utf8(&invalid_utf8_bytes()).unwrap_err()),
+        ];
+        for e in cases {
+            assert!(
+                !is_query_syntax_error(&e),
+                "{e:?} must not be a query-syntax error"
+            );
+            let mapped = query_error(e);
+            assert!(
+                matches!(mapped, crate::Error::Sql(_)),
+                "must stay Error::Sql (→ 500), got {mapped:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_sqlite_result_codes_are_never_query_syntax_errors() {
+        // Each of these has its own dedicated `ErrorCode` distinct from
+        // `Unknown` — corruption, I/O, contention, and "not a database
+        // file" are catalog/infra problems, not something a caller's query
+        // text could ever cause.
+        for code in [
+            ErrorCode::DatabaseCorrupt,
+            ErrorCode::SystemIoFailure,
+            ErrorCode::DatabaseBusy,
+            ErrorCode::NotADatabase,
+        ] {
+            let e = sqlite_failure(code);
+            assert!(
+                !is_query_syntax_error(&e),
+                "{code:?} must not be a query-syntax error"
+            );
+            assert!(matches!(query_error(e), crate::Error::Sql(_)));
+        }
+    }
+}
+
 fn row_to_ref(r: &rusqlite::Row<'_>) -> rusqlite::Result<SymbolRef> {
     let source_raw: String = r.get(7)?;
     let source = match source_raw.as_str() {
@@ -507,10 +643,12 @@ pub fn find_compatible(conn: &Connection, opts: CompatibleOpts<'_>) -> Result<Ve
         .query_map(rusqlite::params_from_iter(param_refs), row_to_ref)
         .and_then(|rows| rows.collect::<std::result::Result<Vec<_>, _>>());
     // Only the `query.is_some()` branch touches `symbol_fts MATCH`, so only
-    // that branch's failures are (potentially) FTS5 rejecting caller syntax
-    // rather than an internal fault — see `run_match_query`'s doc comment.
+    // that branch's failures can even possibly be FTS5 rejecting caller
+    // syntax — `query_error` still narrows further by result code, so a
+    // row-decode failure on this same branch stays a 500 rather than
+    // silently becoming a 400 — see `run_match_query`'s doc comment.
     if opts.query.is_some() {
-        query_map_result.map_err(|e| crate::Error::InvalidQuery(e.to_string()))
+        query_map_result.map_err(query_error)
     } else {
         Ok(query_map_result?)
     }

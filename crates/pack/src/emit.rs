@@ -232,6 +232,11 @@ fn enrich_keywords(name: &str, pin_count: i64, keywords: String) -> String {
 /// `_Counter_Clockwise`) and their `_Shielded`/`_MountingPin` combinations,
 /// including `_Odd_Even` and `_Row_Letter_First` — the standard IDC/box
 /// header shapes and the first thing a "2x5 header" search wants.
+///
+/// Not covered, on purpose: `Connector_Generic`'s `Conn_2Rows-NNPins[_...]`
+/// family (DIN 41612-style card-edge connectors, ~108 symbols) is a
+/// structurally different name shape — hyphenated pin count, no `x` —
+/// that this `NN`x`NN` pattern was never meant to match.
 fn is_generic_pin_header(name: &str) -> bool {
     let Some(rest) = name.strip_prefix("Conn_") else {
         return false;

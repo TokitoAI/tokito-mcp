@@ -73,3 +73,12 @@ impl Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Fixed, client-safe message for [`Error::InvalidQuery`]. The variant's own
+/// `Display` embeds the raw rusqlite detail (useful server-side — logs,
+/// `Debug` output, `Display` in this crate's own tests) but that detail must
+/// never reach the client: it's free-form, SQLite-version-dependent text
+/// that can name real schema internals (e.g. `"no such column: filters"`).
+/// REST and MCP both surface this constant instead of `Error::to_string()`
+/// (TokitoAI/tokito-mcp#106 review, round 2).
+pub const INVALID_QUERY_CLIENT_MESSAGE: &str = "search query is not valid FTS5 syntax";

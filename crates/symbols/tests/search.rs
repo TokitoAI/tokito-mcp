@@ -329,6 +329,39 @@ fn hostile_queries_never_produce_an_unclassified_sql_error() {
     }
 }
 
+/// TokitoAI/tokito-mcp#106 review, round 2: a row that fails to *decode*
+/// (a corrupt catalog) must never be classified the same as a query that
+/// fails to *parse* (a bad caller input). Corrupts `Device:R`'s
+/// `description` column with a raw BLOB — SQLite's per-value typing lets it
+/// through a TEXT-affinity column untouched, so the row still inserts and
+/// FTS5 still indexes/matches it, but `row_to_ref`'s `String` decode of
+/// that column fails with `InvalidColumnType`. An earlier version of
+/// `run_match_query`'s error mapping treated this identically to a
+/// malformed query (`InvalidQuery`, 400, raw detail leaked); it must stay
+/// `Error::Sql` instead.
+#[test]
+fn row_decode_failure_is_a_generic_sql_error_not_invalid_query() {
+    let conn = common::fixture_db();
+    conn.execute(
+        "UPDATE symbol SET description = X'0011223344' WHERE name = 'R'",
+        [],
+    )
+    .unwrap();
+    let err = search::search(
+        &conn,
+        search::SearchOpts {
+            query: "resistor",
+            limit: 10,
+            lib_filter: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, tokito_symbols::Error::Sql(_)),
+        "row-decode failure must stay Error::Sql, got {err:?}"
+    );
+}
+
 #[test]
 fn list_libraries_returns_expected_counts() {
     let conn = common::fixture_db();

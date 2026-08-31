@@ -149,3 +149,79 @@ async fn unicode_query_returns_200() {
     let (status, _) = search("コネクタ").await;
     assert_eq!(status, StatusCode::OK);
 }
+
+// --- TokitoAI/tokito-mcp#106 review, round 2: a row-decode failure must
+// stay a generic 500, never a 400 InvalidQuery ---
+//
+// `run_match_query`'s error mapping is scoped to genuine FTS5/SQLite
+// query-syntax rejections (see `is_query_syntax_error`'s doc comment); a
+// row that fails to decode — a corrupt catalog, not a bad query — must get
+// the same treatment any other internal fault does: 500, a generic
+// client-facing message (not the raw rusqlite detail), and a server-side
+// log. The `tracing::error!` call lives on the exact code path that
+// produces that generic message (`error.rs`'s `INTERNAL_SERVER_ERROR`
+// branch), so pinning the HTTP-visible contract below — 500, `symbols`
+// code, generic message — is equivalent to pinning that the log fires: no
+// other branch in `error.rs` can produce this combination.
+
+async fn search_against(
+    app_state: tokito_mcp_server::state::AppState,
+    query: &str,
+) -> (StatusCode, Value) {
+    let app = build_app(app_state);
+    let uri = format!("/v1/search?q={}&limit=10", percent_encode(query));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: Value =
+        serde_json::from_slice(&body).unwrap_or_else(|_| panic!("non-JSON body: {body:?}"));
+    (status, json)
+}
+
+#[tokio::test]
+async fn row_decode_failure_on_a_matched_row_stays_500_with_a_generic_message() {
+    let (status, body) = search_against(
+        common::fixture_app_state_with_corrupt_description(),
+        "resistor",
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "body={body:?}");
+    assert_eq!(body["error"]["code"], "symbols");
+    assert_eq!(
+        body["error"]["message"], "internal server error",
+        "must not leak the raw rusqlite InvalidColumnType detail"
+    );
+}
+
+/// Same failure, reached through `find_compatible`'s query-present branch —
+/// pinned separately since that branch has its own, independently narrowed
+/// error mapping (`query_error`, not `run_match_query`).
+#[tokio::test]
+async fn row_decode_failure_via_find_compatible_also_stays_500() {
+    let app = build_app(common::fixture_app_state_with_corrupt_description());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/compatible?query=resistor&limit=10")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: Value =
+        serde_json::from_slice(&body).unwrap_or_else(|_| panic!("non-JSON body: {body:?}"));
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "body={json:?}");
+    assert_eq!(json["error"]["message"], "internal server error");
+}
