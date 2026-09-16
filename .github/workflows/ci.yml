@@ -1,0 +1,79 @@
+name: ci
+
+# Only the Docker image smoke test remains here. Every Rust gate -- fmt,
+# clippy, tests, version agreement and cargo-deny -- moved to Buildkite
+# (.buildkite/pipeline.yml) and runs on our own agent.
+#
+# This job has NOT been ported yet. It needs a Docker client with socket access
+# from inside the step and a token for `gh release download`, which is the one
+# piece of this repo's CI that is not a mechanical translation. It stays on
+# GitHub Actions until that lands, rather than being deleted -- it is a real
+# gate on a public artifact, and dropping it silently would be worse than the
+# duplication. It runs on a GitHub-hosted runner, not the VPS.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Docker health + MCP smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate production control-plane overlay
+        run: |
+          docker compose \
+            --env-file deploy/production/.env.example \
+            -f deploy/production/compose.yml \
+            -f deploy/production/compose.generated.yml \
+            config --quiet
+
+      - name: Download the latest released catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --repo "${{ github.repository }}" --pattern symbols.sqlite
+
+      - name: Build runtime image
+        run: |
+          catalog_blake3="$(b3sum symbols.sqlite | cut -d' ' -f1)"
+          docker build \
+            --build-arg "SYMBOLS_BLAKE3=${catalog_blake3}" \
+            --tag tokito-mcp:ci .
+          if docker build \
+            --target catalog-validator \
+            --build-arg "SYMBOLS_BLAKE3=$(printf '0%.0s' {1..64})" \
+            .; then
+            echo "catalog validation accepted an incorrect BLAKE3" >&2
+            exit 1
+          fi
+
+      - name: Validate image health and protocol
+        run: |
+          export TOKITO_MCP_EXPECTED_VERSION="$(
+            python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])'
+          )"
+          container="$(
+            docker run --detach \
+              --publish 127.0.0.1:8090:8090 \
+              --health-interval 2s \
+              --health-start-period 1s \
+              --env TOKITO_MCP_ALLOWED_HOSTS=localhost,localhost:8090,127.0.0.1,127.0.0.1:8090 \
+              tokito-mcp:ci
+          )"
+          trap 'docker logs "$container"; docker rm --force "$container"' EXIT
+          for attempt in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+            [[ "$status" == "healthy" ]] && break
+            [[ "$status" == "unhealthy" ]] && exit 1
+            sleep 2
+          done
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          bash scripts/protocol-smoke.sh http://127.0.0.1:8090/mcp
