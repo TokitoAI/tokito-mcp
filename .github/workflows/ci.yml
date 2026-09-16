@@ -1,80 +1,25 @@
 name: ci
 
+# Only the Docker image smoke test remains here. Every Rust gate -- fmt,
+# clippy, tests, version agreement and cargo-deny -- moved to Buildkite
+# (.buildkite/pipeline.yml) and runs on our own agent.
+#
+# This job has NOT been ported yet. It needs a Docker client with socket access
+# from inside the step and a token for `gh release download`, which is the one
+# piece of this repo's CI that is not a mechanical translation. It stays on
+# GitHub Actions until that lands, rather than being deleted -- it is a real
+# gate on a public artifact, and dropping it silently would be worse than the
+# duplication. It runs on a GitHub-hosted runner, not the VPS.
+
 on:
   pull_request:
   push:
     branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
-
 permissions:
   contents: read
 
 jobs:
-  supply-chain:
-    name: cargo-deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
-
-  version:
-    name: package + advertised version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.11'
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - run: python3 scripts/check-version.py
-
-  fmt:
-    name: cargo fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
-  clippy:
-    name: cargo clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          components: clippy
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-clippy-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      - run: cargo clippy --workspace --all-targets
-
-  test:
-    name: cargo test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      - run: cargo test --workspace
-
   docker:
     name: Docker health + MCP smoke
     runs-on: ubuntu-latest
@@ -95,11 +40,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download --repo "${{ github.repository }}" --pattern symbols.sqlite
-
-      - name: Install catalog integrity tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends b3sum
 
       - name: Build runtime image
         run: |
