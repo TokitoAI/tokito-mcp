@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS meta (
 -- ---------------------------------------------------------------------------
 -- Generated symbols
 -- ---------------------------------------------------------------------------
--- Produced from DS-ViRe evidence via the tokito-ai symbol-extractor and the
+-- Produced from DS-ViRe evidence via the tokito-api symbol-extractor and the
 -- tokito-catalog symbol compiler; sync'd in by `tokito-mcp-pack --generated`.
 -- Read-only at runtime like `symbol`. Writes only happen offline in the packer
 -- so the MCP read surface never becomes an unauthenticated write path.

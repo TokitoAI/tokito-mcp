@@ -176,7 +176,7 @@ fn end_to_end_build_from_fixture_dir() {
 
 /// Exercises the Wave C.2 `generated` subcommand: build a real KiCad
 /// artifact via the top-level packer, then merge a source `generated.sqlite`
-/// (as tokito-ai would produce it) into that artifact and assert the merged
+/// (as tokito-api would produce it) into that artifact and assert the merged
 /// revision is resolvable via the served path.
 #[test]
 fn generated_subcommand_merges_source_into_served_artifact() {
@@ -206,12 +206,12 @@ fn generated_subcommand_merges_source_into_served_artifact() {
         .expect("run tokito-mcp-pack (top-level build)");
     assert!(status.success());
 
-    // 2. Author a source generated.sqlite as tokito-ai's ingestion service
+    // 2. Author a source generated.sqlite as tokito-api's ingestion service
     //    would: canonical schema + one published revision.
     let source = tmp.path().join("generated.sqlite");
     let src_conn = rusqlite::Connection::open(&source).unwrap();
     src_conn
-        .execute_batch(include_str!("fixtures/tokito_ai_generated_revision.sql"))
+        .execute_batch(include_str!("fixtures/tokito_api_generated_revision.sql"))
         .unwrap();
     let symbol_text = r#"(tokito_symbol_lib
   (version 20251024)

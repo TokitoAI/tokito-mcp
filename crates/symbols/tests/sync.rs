@@ -1,5 +1,5 @@
 //! Tests for `generated::sync_from` — the offline merge path used by
-//! `tokito-mcp-pack generated` to pull tokito-ai's `generated.sqlite`
+//! `tokito-mcp-pack generated` to pull tokito-api's `generated.sqlite`
 //! into the served `symbols.sqlite`.
 
 mod common;
