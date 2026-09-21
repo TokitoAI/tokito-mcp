@@ -44,7 +44,7 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Merge generated symbols from tokito-ai's `generated.sqlite`, populated
+    /// Merge generated symbols from tokito-api's `generated.sqlite`, populated
     /// by the ingestion service, into a target served `symbols.sqlite`.
     ///
     /// The target file is opened read-write. Each revision from the source
@@ -57,7 +57,7 @@ enum Command {
         #[arg(long)]
         db: PathBuf,
 
-        /// Source tokito-ai `generated.sqlite` (opened read-only).
+        /// Source tokito-api `generated.sqlite` (opened read-only).
         #[arg(long)]
         source: PathBuf,
     },
