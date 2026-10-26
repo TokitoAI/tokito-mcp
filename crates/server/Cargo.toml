@@ -40,7 +40,7 @@ tower-http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-rmcp = { version = "1", default-features = false, features = [
+rmcp = { version = "3", default-features = false, features = [
     "server",
     "macros",
     "transport-streamable-http-server",
