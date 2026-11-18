@@ -12,7 +12,7 @@
 # — no separate volume mount needed.
 
 # ---- builder ----
-FROM rust:1.97-slim-bookworm@sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1dcbc3f2132ac71a704bcdd3 AS builder
+FROM rust:1.100-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS builder
 
 # rusqlite's `bundled` feature compiles SQLite from source; needs a C toolchain.
 RUN apt-get update && apt-get install -y --no-install-recommends \
