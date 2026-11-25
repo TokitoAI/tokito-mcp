@@ -86,6 +86,10 @@ pub fn build_app(state: AppState) -> Router {
 pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
     let mcp_service = ServiceBuilder::new()
         .layer(RequestBodyLimitLayer::new(MCP_BODY_LIMIT_BYTES))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
         .service(mcp::build_mcp_service(
             state.clone(),
             cfg.allowed_hosts.clone(),
@@ -109,15 +113,7 @@ pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
 
     Router::new()
         .merge(rest)
-        .nest_service(
-            "/mcp",
-            ServiceBuilder::new()
-                .layer(TimeoutLayer::with_status_code(
-                    StatusCode::REQUEST_TIMEOUT,
-                    REQUEST_TIMEOUT,
-                ))
-                .service(mcp_service),
-        )
+        .nest_service("/mcp", mcp_service)
         .layer(RequestBodyLimitLayer::new(REST_BODY_LIMIT_BYTES))
         .layer(tower::limit::ConcurrencyLimitLayer::new(
             MAX_CONCURRENT_REQUESTS,
