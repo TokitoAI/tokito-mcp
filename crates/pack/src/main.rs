@@ -89,10 +89,6 @@ fn main() -> anyhow::Result<()> {
         .clone()
         .zip(args.footprints_commit.clone());
     let args = LegacyArgs::try_from(args)?;
-    if args.out.exists() {
-        std::fs::remove_file(&args.out)?;
-    }
-
     let t_total = Instant::now();
     let (items, errors) = ingest::ingest_all(&args.src);
     tracing::info!(
@@ -110,7 +106,14 @@ fn main() -> anyhow::Result<()> {
             "additional ingest errors suppressed"
         );
     }
+    anyhow::ensure!(
+        !items.is_empty(),
+        "no KiCad symbols ingested; expected .kicad_sym files in .kicad_symdir directories"
+    );
 
+    if args.out.exists() {
+        std::fs::remove_file(&args.out)?;
+    }
     let t_emit = Instant::now();
     let mut conn = tokito_symbols::db::open_for_build(&args.out)?;
     let stats = emit::build(&mut conn, items)?;
