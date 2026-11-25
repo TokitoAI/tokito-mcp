@@ -25,10 +25,13 @@ pub fn routes() -> Router<AppState> {
             "/v1/footprints/{lib}/{name}",
             get(footprints::get_footprint),
         )
-        .route("/v1/footprint-models/{lib}/{name}", get(models::get_model))
         .route("/v1/generated/resolve", get(generated::resolve_by_mpn))
         .route(
             "/v1/generated/{lib}/{name}/provenance",
             get(generated::get_symbol_provenance),
         )
+}
+
+pub(crate) fn model_routes() -> Router {
+    Router::new().route("/v1/footprint-models/{lib}/{name}", get(models::get_model))
 }
