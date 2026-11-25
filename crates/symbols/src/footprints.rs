@@ -56,9 +56,10 @@ impl<'a> FootprintId<'a> {
                 && segment.len() <= 240
                 && !segment.starts_with('.')
                 && !segment.ends_with('.')
-                && segment
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'+'))
+                && segment.bytes().all(|b| {
+                    b.is_ascii_alphanumeric()
+                        || matches!(b, b'_' | b'-' | b'.' | b'+' | b'(' | b')' | b',')
+                })
         }
         (valid(library) && valid(name)).then_some(Self { library, name })
     }
@@ -74,6 +75,10 @@ mod tests {
         assert_eq!(id.library, "RF_Module");
         assert_eq!(id.name, "ESP32-WROOM-32");
         assert!(FootprintId::parse("Resistor_SMD:R_0603_1608Metric").is_some());
+        assert!(FootprintId::parse(
+            "Connector_Hirose_DF40:Hirose_DF40B(2.0)-12DS-0.4V_2x06-1MP_P0.4mm"
+        )
+        .is_some());
     }
 
     #[test]
