@@ -7,6 +7,7 @@ use crate::state::AppState;
 mod footprints;
 mod generated;
 mod meta;
+mod models;
 mod search;
 mod symbols;
 
@@ -24,6 +25,7 @@ pub fn routes() -> Router<AppState> {
             "/v1/footprints/{lib}/{name}",
             get(footprints::get_footprint),
         )
+        .route("/v1/footprint-models/{lib}/{name}", get(models::get_model))
         .route("/v1/generated/resolve", get(generated::resolve_by_mpn))
         .route(
             "/v1/generated/{lib}/{name}/provenance",
