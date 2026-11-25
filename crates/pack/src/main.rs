@@ -120,7 +120,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Write generator metadata into the meta table.
-    let generated_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let generated_at = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)?
+        .format(&time::format_description::well_known::Rfc3339)?;
     let generator_version = env!("CARGO_PKG_VERSION");
     write_meta(&conn, "source_commit", &args.source_commit)?;
     write_meta(&conn, "generator_version", generator_version)?;
