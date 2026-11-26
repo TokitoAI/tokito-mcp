@@ -35,4 +35,4 @@ tracing-subscriber.workspace = true
 blake3.workspace = true
 sha2.workspace = true
 hex = "0.4"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+time = { version = "0.3", features = ["formatting"] }

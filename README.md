@@ -150,6 +150,11 @@ Tracing: `RUST_LOG=tokito_mcp_server=debug,tower_http=debug cargo run ...`.
 
 ## CI
 
+The server pins a reviewed [RMCP revision](https://github.com/modelcontextprotocol/rust-sdk/pull/1474)
+that works without Chrono. Keep the `chrono` feature disabled. Once a release
+contains that change, switch back to the registry package and remove the Git
+source from `deny.toml` after verifying the lockfile and rerunning CI.
+
 Pull requests and pushes to `main` run (`.github/workflows/ci.yml`):
 
 | Job | What it checks |

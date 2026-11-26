@@ -20,7 +20,7 @@ tokito-symbols = { version = "=0.1.10", path = "crates/symbols" }
 tokito-mcp-pack = { version = "=0.1.10", path = "crates/pack" }
 
 # SQLite (bundled — no system dep)
-rusqlite = { version = "0.40", features = ["bundled", "blob", "load_extension"] }
+rusqlite = { version = "0.41", features = ["bundled", "blob", "load_extension"] }
 
 # Serde + body encoding
 serde = { version = "1", features = ["derive"] }
