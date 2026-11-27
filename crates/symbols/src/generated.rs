@@ -241,7 +241,7 @@ pub fn insert_revision<'a>(conn: &Connection, r: NewRevision<'a>) -> Result<i64>
 
 /// Copy every generated-symbol revision from a source `symbols.sqlite`
 /// artifact into the target connection. Used by `tokito-mcp-pack --generated`
-/// to merge tokito-ai's `generated.sqlite` (populated by the ingestion
+/// to merge tokito-api's `generated.sqlite` (populated by the ingestion
 /// service, Wave C.1) into the served catalog.
 ///
 /// Idempotent per revision id: rows already present with matching bodies

@@ -6,6 +6,7 @@
 //! property columns onto the parent's body.
 
 pub mod db;
+pub mod footprints;
 pub mod generated;
 pub mod model;
 pub mod part_id;
