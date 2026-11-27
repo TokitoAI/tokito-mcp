@@ -14,8 +14,8 @@
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{
-        CallToolResult, Content, ErrorCode, ErrorData as McpError, Implementation,
-        ServerCapabilities, ServerInfo,
+        CallToolResult, ContentBlock, ErrorCode, ErrorData as McpError, Implementation,
+        ServerCapabilities, ServerConfig,
     },
     schemars, tool, tool_handler, tool_router, ServerHandler,
 };
@@ -459,8 +459,8 @@ impl Tokito {
 
 #[tool_handler]
 impl ServerHandler for Tokito {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("tokito-mcp", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "KiCad symbol catalog for AI-assisted PCB design. \
@@ -530,7 +530,7 @@ fn symbol_keys(
 
 fn ok_json<T: Serialize>(v: &T) -> Result<CallToolResult, McpError> {
     let s = serde_json::to_string(v).map_err(|e| internal("serialize response", &e))?;
-    Ok(CallToolResult::success(vec![Content::text(s)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(s)]))
 }
 
 fn map_sym(e: tokito_symbols::Error) -> McpError {

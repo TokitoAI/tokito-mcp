@@ -33,8 +33,8 @@ writes.
 ### Docker
 
 ```bash
-docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.10
-docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.10
+docker pull ghcr.io/tokitoai/tokito-mcp:v0.1.11
+docker run -p 8090:8090 ghcr.io/tokitoai/tokito-mcp:v0.1.11
 curl http://localhost:8090/v1/health
 ```
 
@@ -149,6 +149,11 @@ procedure are in [`docs/deployment.md`](docs/deployment.md).
 Tracing: `RUST_LOG=tokito_mcp_server=debug,tower_http=debug cargo run ...`.
 
 ## CI
+
+The server pins a reviewed [RMCP revision](https://github.com/modelcontextprotocol/rust-sdk/pull/1474)
+that works without Chrono. Keep the `chrono` feature disabled. Once a release
+contains that change, switch back to the registry package and remove the Git
+source from `deny.toml` after verifying the lockfile and rerunning CI.
 
 Pull requests and pushes to `main` run (`.github/workflows/ci.yml`):
 
