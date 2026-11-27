@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS meta (
 -- ---------------------------------------------------------------------------
 -- Generated symbols
 -- ---------------------------------------------------------------------------
--- Produced from DS-ViRe evidence via the tokito-ai symbol-extractor and the
+-- Produced from DS-ViRe evidence via the tokito-api symbol-extractor and the
 -- tokito-catalog symbol compiler; sync'd in by `tokito-mcp-pack --generated`.
 -- Read-only at runtime like `symbol`. Writes only happen offline in the packer
 -- so the MCP read surface never becomes an unauthenticated write path.
@@ -143,3 +143,11 @@ CREATE TRIGGER IF NOT EXISTS generated_symbol_au AFTER UPDATE ON generated_symbo
     INSERT INTO generated_symbol_fts(rowid, name, description, keywords, fp_filters)
     VALUES (new.id, new.name, new.description, new.keywords, new.fp_filters);
 END;
+CREATE TABLE IF NOT EXISTS footprint_source (
+    library TEXT NOT NULL,
+    name TEXT NOT NULL,
+    revision TEXT NOT NULL CHECK(length(revision) = 40),
+    source TEXT NOT NULL CHECK(length(CAST(source AS BLOB)) BETWEEN 1 AND 524288),
+    sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+    PRIMARY KEY(library, name)
+) WITHOUT ROWID;

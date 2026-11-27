@@ -1,0 +1,37 @@
+# Buildkite equivalent of .github/workflows/ci.yml.
+#
+# Every command is a path to a script in this repository, never an inline
+# command: the agents run with no-command-eval=true, which refuses anything
+# else. See tokito-infra docs/plans/01-self-hosted-ci.md.
+#
+# ci.yml ran six jobs, each booting its own GitHub-hosted runner to repeat the
+# same checkout and toolchain install. Here they are steps on one agent sharing
+# one checkout, and the toolchain is already in the image.
+
+env:
+  # The pinned CI image, built from tokito-infra/ci/runner/Dockerfile. Its Rust
+  # version must match rust-toolchain.toml — if they drift, rustup honours the
+  # repo's file and downloads a second toolchain at job time, which is the exact
+  # failure the image exists to prevent.
+  CI_IMAGE: "tokito-ci-linux:1.96.0"
+
+agents:
+  queue: "${TOKITO_CI_QUEUE:-linux}"
+
+steps:
+  - label: ":rust: ci"
+    command: .buildkite/steps/ci.sh
+
+  - label: ":whale: compose overlay"
+    command: .buildkite/steps/validate-compose.sh
+
+  # Not ported yet: the "Docker health + MCP smoke" job. It downloads the
+  # released symbols.sqlite, builds the runtime image, asserts that catalog
+  # validation *rejects* a wrong BLAKE3, then health-checks a running container
+  # and runs scripts/protocol-smoke.sh against it.
+  #
+  # It needs a Docker client with socket access from inside the step and a
+  # GitHub token for `gh release download`. Both are solvable — the agent has a
+  # rootless daemon and a token minter — but it is the one job here that is not
+  # a mechanical translation, so it gets its own change rather than riding this
+  # one. Tracked in tokito-infra docs/deployment-status.md.

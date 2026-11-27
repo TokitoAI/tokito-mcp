@@ -1,4 +1,4 @@
-//! Import the real `tokito-ai` generated-revision database into the served
+//! Import the real `tokito-api` generated-revision database into the served
 //! catalog. The producer stores canonical `.tokito_sym` text; this importer
 //! parses and validates that artifact once, then stores both its compact body
 //! and its exact bytes so downstream clients never reconstruct a lossy copy.
@@ -36,7 +36,7 @@ pub(crate) fn sync_from_ingestion(
         .is_some();
     if !has_real_schema {
         anyhow::bail!(
-            "source is not a tokito-ai generated.sqlite: generated_revision table missing"
+            "source is not a tokito-api generated.sqlite: generated_revision table missing"
         );
     }
 
