@@ -21,6 +21,7 @@ env:
   CARGO_TERM_COLOR: always
   # Default kicad-symbols pin — bump when CERN ships an update we want to track.
   KICAD_SYMBOLS_REF: '90c39c3880f0062a56b5944d428edc846968d72b'
+  KICAD_FOOTPRINTS_REF: '2b941bf1d97862be429793b46fd52a5add09a2fc' # KiCad 9.0.8
 
 jobs:
   # ----------------------------------------------------------------- artifacts
@@ -77,13 +78,22 @@ jobs:
       - name: Build packer
         run: cargo build --release -p tokito-mcp-pack
 
+      - name: Fetch pinned KiCad footprint objects
+        run: |
+          git init --bare kicad-footprints.git
+          git -C kicad-footprints.git fetch --depth=1 --no-tags \
+            https://gitlab.com/kicad/libraries/kicad-footprints.git "$KICAD_FOOTPRINTS_REF"
+          git -C kicad-footprints.git update-ref HEAD "$KICAD_FOOTPRINTS_REF"
+
       - name: Run packer
         run: |
           mkdir -p out
           ./target/release/tokito-mcp-pack \
             --src kicad-symbols \
             --out out/symbols.sqlite \
-            --source-commit '${{ steps.meta.outputs.kicad_ref }}'
+            --source-commit '${{ steps.meta.outputs.kicad_ref }}' \
+            --footprints-src kicad-footprints.git \
+            --footprints-commit "$KICAD_FOOTPRINTS_REF"
 
       - name: Record blake3 of full artifact
         id: hash
@@ -160,7 +170,7 @@ jobs:
         run: cp out/symbols.sqlite ./symbols.sqlite
 
       - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Login to ghcr.io
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -185,7 +195,7 @@ jobs:
 
       - name: Build + push
         id: push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile

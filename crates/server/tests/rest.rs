@@ -1,4 +1,4 @@
-﻿//! REST face â€” exercise every endpoint through the assembled router via
+//! REST face â€” exercise every endpoint through the assembled router via
 //! tower::ServiceExt::oneshot. No port binding, no async tasks beyond the
 //! single request future.
 
@@ -12,6 +12,44 @@ use tokito_mcp_server::build_app;
 use tower::ServiceExt;
 
 mod common;
+
+#[tokio::test]
+async fn footprint_endpoint_returns_only_an_exact_catalog_match() {
+    let state = common::fixture_app_state();
+    let revision = "a".repeat(40);
+    let digest = "b".repeat(64);
+    let source = "(footprint \"Chip\")\n";
+    state
+        .conn
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO footprint_source VALUES ('Test', 'Chip', ?1, ?2, ?3)",
+            rusqlite::params![revision, source, digest],
+        )
+        .unwrap();
+    let app = build_app(state);
+    for (path, status) in [
+        ("/v1/footprints/Test/Chip", StatusCode::OK),
+        ("/v1/footprints/Test/chip", StatusCode::NOT_FOUND),
+        ("/v1/footprints/Test/a%2Fb", StatusCode::BAD_REQUEST),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{path}");
+        if status == StatusCode::OK {
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            let payload: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(payload["footprint_id"], "Test:Chip");
+            assert_eq!(payload["source_revision"], revision);
+            assert_eq!(payload["source_sha256"], digest);
+            assert_eq!(payload["source"], source);
+        }
+    }
+}
 
 async fn request_json(uri: &str) -> (StatusCode, Value) {
     let app = build_app(common::fixture_app_state());
