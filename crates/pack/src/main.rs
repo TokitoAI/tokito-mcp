@@ -12,6 +12,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 mod emit;
+mod footprint_source;
 mod generated_source;
 mod ingest;
 mod kicad;
@@ -40,6 +41,13 @@ struct Args {
     /// CERN git SHA the source was checked out at. Legacy top-level flag.
     #[arg(long, global = false)]
     source_commit: Option<String>,
+
+    /// Clean kicad-footprints checkout at an exact reviewed revision.
+    #[arg(long, requires = "footprints_commit")]
+    footprints_src: Option<PathBuf>,
+
+    #[arg(long, requires = "footprints_src")]
+    footprints_commit: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -76,11 +84,11 @@ fn main() -> anyhow::Result<()> {
         return run_generated_sync(db, source);
     }
 
+    let footprints = args
+        .footprints_src
+        .clone()
+        .zip(args.footprints_commit.clone());
     let args = LegacyArgs::try_from(args)?;
-    if args.out.exists() {
-        std::fs::remove_file(&args.out)?;
-    }
-
     let t_total = Instant::now();
     let (items, errors) = ingest::ingest_all(&args.src);
     tracing::info!(
@@ -98,13 +106,26 @@ fn main() -> anyhow::Result<()> {
             "additional ingest errors suppressed"
         );
     }
+    anyhow::ensure!(
+        !items.is_empty(),
+        "no KiCad symbols ingested; expected .kicad_sym files in .kicad_symdir directories"
+    );
 
+    if args.out.exists() {
+        std::fs::remove_file(&args.out)?;
+    }
     let t_emit = Instant::now();
     let mut conn = tokito_symbols::db::open_for_build(&args.out)?;
     let stats = emit::build(&mut conn, items)?;
+    if let Some((source, revision)) = footprints {
+        let count = footprint_source::pack(&mut conn, &source, &revision)?;
+        tracing::info!(count, %revision, "packed exact KiCad footprints");
+    }
 
     // Write generator metadata into the meta table.
-    let generated_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let generated_at = time::OffsetDateTime::now_utc()
+        .replace_nanosecond(0)?
+        .format(&time::format_description::well_known::Rfc3339)?;
     let generator_version = env!("CARGO_PKG_VERSION");
     write_meta(&conn, "source_commit", &args.source_commit)?;
     write_meta(&conn, "generator_version", generator_version)?;
