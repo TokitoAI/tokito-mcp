@@ -40,7 +40,9 @@ tower-http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-rmcp = { version = "1", default-features = false, features = [
+# Reviewed upstream change modelcontextprotocol/rust-sdk#1474 makes Chrono
+# optional. The exact revision keeps the dependency gate intact.
+rmcp = { version = "=3.11.0", git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "9043cdfa8694d83bf506c2f3eb0313ec173edd7e", default-features = false, features = [
     "server",
     "macros",
     "transport-streamable-http-server",

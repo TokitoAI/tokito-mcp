@@ -143,3 +143,11 @@ CREATE TRIGGER IF NOT EXISTS generated_symbol_au AFTER UPDATE ON generated_symbo
     INSERT INTO generated_symbol_fts(rowid, name, description, keywords, fp_filters)
     VALUES (new.id, new.name, new.description, new.keywords, new.fp_filters);
 END;
+CREATE TABLE IF NOT EXISTS footprint_source (
+    library TEXT NOT NULL,
+    name TEXT NOT NULL,
+    revision TEXT NOT NULL CHECK(length(revision) = 40),
+    source TEXT NOT NULL CHECK(length(CAST(source AS BLOB)) BETWEEN 1 AND 524288),
+    sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+    PRIMARY KEY(library, name)
+) WITHOUT ROWID;

@@ -77,14 +77,19 @@ pub fn build_app(state: AppState) -> Router {
 
 /// Build the fully-assembled router with both REST and MCP faces.
 ///
-/// Layer ordering: timeout + concurrency-limit wrap the outer router so they
-/// apply to BOTH faces; the MCP service gets its own body limit because
+/// Concurrency and request size limits cover both faces. Exact model downloads
+/// have a separate bounded timeout to accommodate their pinned upstream fetch.
+/// The MCP service gets its own body limit because
 /// `nest_service` bypasses axum's `DefaultBodyLimit` and our outer REST limit
 /// is too tight for MCP envelopes. CORS is applied to the REST face only — the
 /// MCP service does its own `Origin` validation internally.
 pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
     let mcp_service = ServiceBuilder::new()
         .layer(RequestBodyLimitLayer::new(MCP_BODY_LIMIT_BYTES))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
         .service(mcp::build_mcp_service(
             state.clone(),
             cfg.allowed_hosts.clone(),
@@ -92,7 +97,16 @@ pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
             cfg.max_sessions,
         ));
 
-    let mut rest = rest::routes().with_state(state);
+    let mut rest = rest::routes()
+        .with_state(state)
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
+        .merge(rest::model_routes().layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(14),
+        )));
     if !cfg.allowed_origins.is_empty() {
         rest = rest.layer(cors_layer(&cfg.allowed_origins));
     }
@@ -101,10 +115,6 @@ pub fn build_app_with_config(state: AppState, cfg: ServerConfig) -> Router {
         .merge(rest)
         .nest_service("/mcp", mcp_service)
         .layer(RequestBodyLimitLayer::new(REST_BODY_LIMIT_BYTES))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
-        ))
         .layer(tower::limit::ConcurrencyLimitLayer::new(
             MAX_CONCURRENT_REQUESTS,
         ))
