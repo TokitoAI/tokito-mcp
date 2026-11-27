@@ -1,5 +1,5 @@
 -- Contract fixture mirroring the immutable producer table in
--- TokitoAI/tokito-ai migrations/generated_0001_init.sql. Keep every column the
+-- TokitoAI/tokito-api migrations/generated_0001_init.sql. Keep every column the
 -- MCP importer reads plus the producer's idempotency and immutability rules.
 CREATE TABLE generated_revision (
     revision_id            TEXT PRIMARY KEY,
